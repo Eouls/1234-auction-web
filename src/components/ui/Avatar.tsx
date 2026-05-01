@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 
 type AvatarProps = {
   name: string;
+  src?: string | null;
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 };
@@ -13,7 +14,7 @@ const sizes = {
   xl: "h-24 w-24 text-3xl",
 };
 
-export function Avatar({ name, size = "md", className }: AvatarProps) {
+export function Avatar({ name, src, size = "md", className }: AvatarProps) {
   const initial = name.trim().slice(0, 1).toUpperCase() || "?";
 
   return (
@@ -25,7 +26,15 @@ export function Avatar({ name, size = "md", className }: AvatarProps) {
         className,
       )}
     >
-      {initial}
+      {src ? (
+        <img
+          alt={`${name} 프로필 이미지`}
+          className="h-full w-full rounded-full object-cover"
+          src={src}
+        />
+      ) : (
+        initial
+      )}
     </div>
   );
 }
