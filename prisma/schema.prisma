@@ -1,0 +1,170 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum LolRole {
+  TOP
+  JUNGLE
+  MID
+  ADC
+  SUPPORT
+}
+
+enum AuctionStatus {
+  DRAFT
+  READY
+  RUNNING
+  PAUSED
+  FINISHED
+  CANCELED
+}
+
+enum ParticipantStatus {
+  WAITING
+  BIDDING
+  SOLD
+  UNSOLD
+  CAPTAIN
+}
+
+enum ChatType {
+  GLOBAL
+  TEAM
+}
+
+model User {
+  id                    String               @id @default(cuid())
+  authUserId            String               @unique
+  discordId             String               @unique
+  discordUsername       String?
+  discordAvatarUrl      String?
+  nickname              String               @unique
+  customProfileImageUrl String?
+  bio                   String?
+  mainRole              LolRole?
+  subRole               LolRole?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  lolAccounts           LolAccount[]
+  lolStats              UserLolStats?
+  ownedAuctions         Auction[]            @relation("AuctionOwner")
+  auctionParticipants   AuctionParticipant[]
+  captainTeams          AuctionTeam[]        @relation("TeamCaptain")
+  chatMessages          ChatMessage[]
+}
+
+model LolAccount {
+  id        String   @id @default(cuid())
+  userId    String
+  gameName  String
+  tagLine   String
+  puuid     String?
+  region    String   @default("KR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameName, tagLine])
+}
+
+model UserLolStats {
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  currentTier           String?
+  currentRank           String?
+  peakTier              String?
+  peakRank              String?
+  mostChampion1         String?
+  mostChampion2         String?
+  mostChampion3         String?
+  mostChampion1ImageUrl String?
+  mostChampion2ImageUrl String?
+  mostChampion3ImageUrl String?
+  refreshedAt           DateTime?
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Auction {
+  id                         String               @id @default(cuid())
+  code                       String               @unique
+  title                      String
+  ownerId                    String
+  teamCount                  Int
+  membersPerTeam             Int
+  auctionSeconds             Int
+  extendSeconds              Int
+  startPoints                Int
+  status                     AuctionStatus        @default(DRAFT)
+  currentTargetParticipantId String?
+  currentBidId               String?
+  currentRoundEndAt          DateTime?
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+  owner                      User                 @relation("AuctionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  teams                      AuctionTeam[]
+  participants               AuctionParticipant[]
+  bids                       AuctionBid[]
+  messages                   ChatMessage[]
+}
+
+model AuctionParticipant {
+  id        String            @id @default(cuid())
+  auctionId String
+  userId    String
+  status    ParticipantStatus @default(WAITING)
+  teamId    String?
+  soldPrice Int?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  auction   Auction           @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      AuctionTeam?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@unique([auctionId, userId])
+}
+
+model AuctionTeam {
+  id         String               @id @default(cuid())
+  auctionId  String
+  name       String
+  captainId  String?
+  pointsLeft Int
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  auction    Auction              @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  captain    User?                @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: SetNull)
+  members    AuctionParticipant[]
+
+  @@unique([auctionId, name])
+}
+
+model AuctionBid {
+  id                  String   @id @default(cuid())
+  auctionId           String
+  bidderTeamId        String
+  bidderCaptainId     String
+  targetParticipantId String
+  amount              Int
+  createdAt           DateTime @default(now())
+  auction             Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  auctionId String
+  senderId  String
+  teamId    String?
+  type      ChatType
+  message   String
+  createdAt DateTime @default(now())
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+}
