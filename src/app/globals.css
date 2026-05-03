@@ -1,8 +1,81 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
-  --foreground: #e5e7eb;
+  color-scheme: light;
+  --background: #ffffff;
+  --page-muted: #f7f7f8;
+  --card: #ffffff;
+  --card-muted: #f2f2f2;
+  --surface-hover: #f1f1f1;
+  --border: #dadce0;
+  --border-strong: #c7c7c7;
+  --foreground: #0f0f0f;
+  --muted-foreground: #606060;
+  --tertiary-foreground: #8a8a8a;
+  --primary: #0f0f0f;
+  --primary-hover: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f2f2;
+  --secondary-foreground: #0f0f0f;
+  --shadow: rgb(15 15 15 / 0.08);
+
+  /* Backward-compatible aliases used by existing components. */
+  --surface: var(--card);
+  --surface-muted: var(--card-muted);
+  --surface-subtle: var(--surface-hover);
+  --foreground-muted: var(--muted-foreground);
+  --foreground-subtle: var(--tertiary-foreground);
+  --accent: var(--primary);
+  --accent-hover: var(--primary-hover);
+  --accent-foreground: var(--primary-foreground);
+  --accent-muted: var(--muted-foreground);
+  --accent-soft: rgb(15 15 15 / 0.08);
+
+  --success: #15803d;
+  --success-soft: rgb(21 128 61 / 0.12);
+  --warning: #b45309;
+  --warning-soft: rgb(245 158 11 / 0.14);
+  --danger: #dc2626;
+  --danger-soft: rgb(239 68 68 / 0.12);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0f0f0f;
+  --page-muted: #181818;
+  --card: #212121;
+  --card-muted: #2a2a2a;
+  --surface-hover: #303030;
+  --border: #3f3f3f;
+  --border-strong: #555555;
+  --foreground: #f1f1f1;
+  --muted-foreground: #aaaaaa;
+  --tertiary-foreground: #777777;
+  --primary: #f1f1f1;
+  --primary-hover: #ffffff;
+  --primary-foreground: #0f0f0f;
+  --secondary: #272727;
+  --secondary-foreground: #f1f1f1;
+  --shadow: rgb(0 0 0 / 0.2);
+
+  /* Backward-compatible aliases used by existing components. */
+  --surface: var(--card);
+  --surface-muted: var(--card-muted);
+  --surface-subtle: var(--surface-hover);
+  --foreground-muted: var(--muted-foreground);
+  --foreground-subtle: var(--tertiary-foreground);
+  --accent: var(--primary);
+  --accent-hover: var(--primary-hover);
+  --accent-foreground: var(--primary-foreground);
+  --accent-muted: var(--muted-foreground);
+  --accent-soft: rgb(241 241 241 / 0.1);
+
+  --success: #34d399;
+  --success-soft: rgb(52 211 153 / 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgb(251 191 36 / 0.14);
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.14);
 }
 
 @theme inline {
@@ -20,4 +93,141 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--foreground);
+}
+
+/* Legacy color adapter while the UI migrates from blue game tones to neutral theme tokens. */
+.bg-slate-950,
+.bg-slate-950\/70,
+.bg-slate-950\/60,
+.bg-slate-950\/50,
+.bg-slate-950\/40,
+.bg-slate-900,
+.bg-slate-900\/75 {
+  background-color: var(--surface-muted) !important;
+}
+
+.bg-white\/5,
+.bg-white\/10,
+.bg-white\/15,
+.hover\:bg-white\/10:hover,
+.hover\:bg-white\/15:hover {
+  background-color: var(--surface-subtle) !important;
+}
+
+.border-white\/10,
+.border-slate-300\/20,
+.border-slate-300\/30 {
+  border-color: var(--border) !important;
+}
+
+.text-white,
+.text-slate-50,
+.text-slate-100,
+.text-slate-200 {
+  color: var(--foreground) !important;
+}
+
+.text-slate-300,
+.text-slate-400 {
+  color: var(--foreground-muted) !important;
+}
+
+.text-slate-500,
+.text-slate-600 {
+  color: var(--foreground-subtle) !important;
+}
+
+.placeholder\:text-slate-500::placeholder {
+  color: var(--foreground-subtle) !important;
+}
+
+.bg-cyan-300,
+.bg-cyan-400,
+.hover\:bg-cyan-300:hover {
+  background-color: var(--accent) !important;
+}
+
+.bg-cyan-300.text-slate-950,
+.bg-cyan-400.text-slate-950 {
+  color: var(--accent-foreground) !important;
+}
+
+.bg-cyan-400\/10,
+.bg-cyan-400\/15,
+.bg-cyan-500\/10 {
+  background-color: var(--accent-soft) !important;
+}
+
+.border-cyan-300\/20,
+.border-cyan-300\/30,
+.border-cyan-300\/40,
+.border-cyan-300\/70,
+.hover\:border-cyan-300\/40:hover,
+.focus\:border-cyan-300\/70:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+}
+
+.text-cyan-50,
+.text-cyan-100,
+.text-cyan-200,
+.text-cyan-300,
+.hover\:text-cyan-200:hover {
+  color: var(--accent-muted) !important;
+}
+
+.focus\:ring-cyan-300\/15:focus {
+  --tw-ring-color: var(--accent-soft) !important;
+}
+
+.bg-emerald-400\/10,
+.bg-emerald-500\/10 {
+  background-color: var(--success-soft) !important;
+}
+
+.border-emerald-300\/30,
+.border-emerald-300\/40,
+.border-emerald-400\/40 {
+  border-color: color-mix(in srgb, var(--success) 45%, transparent) !important;
+}
+
+.text-emerald-200 {
+  color: var(--success) !important;
+}
+
+.bg-amber-400\/10,
+.bg-amber-500\/10 {
+  background-color: var(--warning-soft) !important;
+}
+
+.border-amber-300\/20,
+.border-amber-300\/40,
+.border-amber-300\/50,
+.border-amber-400\/40 {
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important;
+}
+
+.text-amber-100,
+.text-amber-200 {
+  color: var(--warning) !important;
+}
+
+.bg-rose-500\/10,
+.bg-rose-500\/20,
+.hover\:bg-rose-500\/30:hover {
+  background-color: var(--danger-soft) !important;
+}
+
+.border-rose-300\/30,
+.border-rose-300\/40 {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent) !important;
+}
+
+.text-rose-100,
+.text-rose-300 {
+  color: var(--danger) !important;
 }

@@ -46,11 +46,31 @@ export async function validateChampionCandidates(candidates: Array<{ imageUrl?: 
 
     validChampions.push({
       name: champion.name,
-      imageUrl: candidate.imageUrl ?? getChampionImageUrl(championIndex.version, champion.image.full),
+      imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
     });
   });
 
   return { validChampions, invalidCandidates };
+}
+
+export async function resolveChampionIcons(championNames: Array<string | null | undefined>) {
+  const championIndex = await getChampionIndex();
+
+  if (!championIndex) {
+    return championNames.map(() => null);
+  }
+
+  return championNames.map((name) => {
+    if (!name) return null;
+
+    const champion = championIndex.byAlias.get(normalizeAlias(name));
+    if (!champion) return null;
+
+    return {
+      name: champion.name,
+      imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
+    };
+  });
 }
 
 export async function filterValidChampionNames(championNames: Array<string | null | undefined>) {

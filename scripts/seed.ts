@@ -70,6 +70,7 @@ async function main() {
           create: {
             gameName: `${user.nickname}계정`,
             tagLine: "KR1",
+            sortOrder: 0,
           },
         },
         lolStats: {
@@ -107,6 +108,7 @@ async function main() {
           create: {
             gameName: `${user.nickname}계정`,
             tagLine: "KR1",
+            sortOrder: 0,
           },
         },
         lolStats: {

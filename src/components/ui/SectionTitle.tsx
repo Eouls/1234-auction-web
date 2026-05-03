@@ -6,8 +6,8 @@ type SectionTitleProps = {
 export function SectionTitle({ title, description }: SectionTitleProps) {
   return (
     <div className="mb-4">
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
-      {description ? <p className="mt-1 text-sm text-slate-400">{description}</p> : null}
+      <h2 className="text-lg font-semibold text-[var(--foreground)]">{title}</h2>
+      {description ? <p className="mt-1 text-sm text-[var(--foreground-muted)]">{description}</p> : null}
     </div>
   );
 }

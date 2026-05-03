@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   getChatMessageForAuction,
   recordAuctionRoomEntry,
@@ -8,6 +8,7 @@ import {
   type ChatMessagePayload,
 } from "@/app/auctions/[code]/actions";
 import { Avatar, Button, Card, Textarea } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
 
 type ChatTab = "GLOBAL" | "TEAM";
@@ -20,29 +21,40 @@ type LocalChatMessage = ChatMessagePayload & {
 type AuctionChatPanelProps = {
   auctionCode: string;
   auctionId: string;
+  className?: string;
   currentUser: {
     id: string;
     imageUrl: string | null;
     nickname: string;
   };
   initialMessages: ChatMessagePayload[];
+  messageListClassName?: string;
+  mode?: ChatTab;
+  recordEntry?: boolean;
   teamId: string | null;
+  title?: string;
 };
 
 export function AuctionChatPanel({
   auctionCode,
   auctionId,
+  className,
   currentUser,
   initialMessages,
+  messageListClassName,
+  mode,
+  recordEntry = true,
   teamId,
+  title,
 }: AuctionChatPanelProps) {
-  const [activeTab, setActiveTab] = useState<ChatTab>("GLOBAL");
+  const [activeTab, setActiveTab] = useState<ChatTab>(mode ?? "GLOBAL");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<LocalChatMessage[]>(() => dedupeMessages(initialMessages));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
   const optimisticCounterRef = useRef(0);
+  const realtimeChannelId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
 
@@ -55,6 +67,8 @@ export function AuctionChatPanel({
   }, [initialMessages]);
 
   useEffect(() => {
+    if (!recordEntry) return;
+
     const storageKey = `auction-entry:${auctionId}`;
     if (window.sessionStorage.getItem(storageKey)) return;
     window.sessionStorage.setItem(storageKey, "true");
@@ -68,12 +82,15 @@ export function AuctionChatPanel({
         setMessages((currentMessages) => mergeMessages(currentMessages, [result.message as ChatMessagePayload]));
       }
     });
-  }, [auctionCode, auctionId]);
+  }, [auctionCode, auctionId, recordEntry]);
 
   useEffect(() => {
     const supabase = createClient();
+    const channelType = mode ?? "tabs";
+    const channelTeamId = channelType === "TEAM" ? (teamId ?? "none") : "all";
+    const channelName = `auction-chat:${channelType.toLowerCase()}:${auctionId}:${channelTeamId}:${realtimeChannelId}`;
     const channel = supabase
-      .channel(`auction-chat:${auctionId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
@@ -98,7 +115,7 @@ export function AuctionChatPanel({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [auctionId]);
+  }, [auctionId, mode, realtimeChannelId, teamId]);
 
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
@@ -190,27 +207,34 @@ export function AuctionChatPanel({
   }
 
   return (
-    <Card className="p-4">
-      <div className="mb-4 flex rounded-md border border-white/10 bg-slate-950/70 p-1">
-        <button
-          className={`flex-1 rounded px-3 py-2 text-sm font-bold ${
-            activeTab === "GLOBAL" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"
-          }`}
-          onClick={() => setActiveTab("GLOBAL")}
-          type="button"
-        >
-          전체 채팅
-        </button>
-        <button
-          className={`flex-1 rounded px-3 py-2 text-sm font-bold ${
-            activeTab === "TEAM" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"
-          }`}
-          onClick={() => setActiveTab("TEAM")}
-          type="button"
-        >
-          팀 채팅
-        </button>
+    <Card className={cn("p-4", className)}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-white">{title ?? "채팅"}</h2>
+        <span className="text-xs text-slate-500">{activeTab === "GLOBAL" ? "전체" : "팀"}</span>
       </div>
+
+      {!mode ? (
+        <div className="mb-4 flex rounded-md border border-white/10 bg-slate-950/70 p-1">
+          <button
+            className={`flex-1 rounded px-3 py-2 text-sm font-bold ${
+              activeTab === "GLOBAL" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"
+            }`}
+            onClick={() => setActiveTab("GLOBAL")}
+            type="button"
+          >
+            전체 채팅
+          </button>
+          <button
+            className={`flex-1 rounded px-3 py-2 text-sm font-bold ${
+              activeTab === "TEAM" ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white"
+            }`}
+            onClick={() => setActiveTab("TEAM")}
+            type="button"
+          >
+            팀 채팅
+          </button>
+        </div>
+      ) : null}
 
       {isTeamChatDisabled ? (
         <p className="mb-3 rounded-md border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
@@ -220,7 +244,7 @@ export function AuctionChatPanel({
 
       <div
         ref={scrollRef}
-        className="h-80 space-y-3 overflow-y-auto rounded-md border border-white/10 bg-slate-950/50 p-3"
+        className={cn("h-72 space-y-3 overflow-y-auto rounded-md border border-white/10 bg-slate-950/50 p-3", messageListClassName)}
         onScroll={handleScroll}
       >
         {visibleMessages.length ? (

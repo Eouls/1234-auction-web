@@ -5,7 +5,7 @@ import { ProfileSummary } from "@/components/profile/ProfileSummary";
 import { RiotStatsRefreshButton } from "@/components/profile/RiotStatsRefreshButton";
 import { Button, PageHeader } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
-import { filterValidChampionNames } from "@/lib/riot/champions";
+import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
 
@@ -25,9 +25,7 @@ export default async function ProfilePage() {
     },
     include: {
       lolAccounts: {
-        orderBy: {
-          createdAt: "asc",
-        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       lolStats: true,
     },
@@ -38,7 +36,7 @@ export default async function ProfilePage() {
   }
 
   const imageUrl = user.customProfileImageUrl ?? user.discordAvatarUrl;
-  const validChampionNames = await filterValidChampionNames([
+  const championIcons = await resolveChampionIcons([
     user.lolStats?.mostChampion1,
     user.lolStats?.mostChampion2,
     user.lolStats?.mostChampion3,
@@ -75,16 +73,16 @@ export default async function ProfilePage() {
             peakRank: user.lolStats?.peakRank,
             favoriteChampions: [
               {
-                name: validChampionNames[0],
-                imageUrl: user.lolStats?.mostChampion1ImageUrl ?? null,
+                name: championIcons[0]?.name ?? null,
+                imageUrl: championIcons[0]?.imageUrl ?? null,
               },
               {
-                name: validChampionNames[1],
-                imageUrl: user.lolStats?.mostChampion2ImageUrl ?? null,
+                name: championIcons[1]?.name ?? null,
+                imageUrl: championIcons[1]?.imageUrl ?? null,
               },
               {
-                name: validChampionNames[2],
-                imageUrl: user.lolStats?.mostChampion3ImageUrl ?? null,
+                name: championIcons[2]?.name ?? null,
+                imageUrl: championIcons[2]?.imageUrl ?? null,
               },
             ],
           }}

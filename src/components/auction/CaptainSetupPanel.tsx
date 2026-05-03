@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { updateTeamCaptain, updateTeamPoints, type CaptainActionState } from "@/app/auctions/[code]/actions";
-import { Avatar, Button, Card, Input, RoleBadge } from "@/components/ui";
+import { Avatar, Button, Card, Input } from "@/components/ui";
 import type { LolRole } from "@/types/auction";
 
 type CaptainSetupParticipant = {
@@ -58,6 +58,7 @@ export function CaptainSetupPanel({
 }: CaptainSetupPanelProps) {
   const [state, formAction, isPending] = useActionState(updateTeamCaptain, initialState);
   const [pointsState, pointsAction, isPointsPending] = useActionState(updateTeamPoints, initialState);
+  const [editingPointsTeamId, setEditingPointsTeamId] = useState<string | null>(null);
   const [selectedCaptains, setSelectedCaptains] = useState<Record<string, string>>(() =>
     Object.fromEntries(teams.map((team) => [team.id, team.captainId ?? ""])),
   );
@@ -86,31 +87,84 @@ export function CaptainSetupPanel({
           {pointsState.success}
         </p>
       ) : null}
-      {teams.map((team) => (
-        <Card key={team.id} className="p-5">
-          <div className="flex items-center gap-3">
-            <Avatar name={team.captain?.nickname ?? team.name} src={team.captain?.imageUrl} />
-            <div>
-              <h3 className="font-bold text-white">{team.name}</h3>
-              <p className="text-xs text-slate-400">
-                {team.memberCount} / {team.membersPerTeam}명
+      {teams.map((team) => {
+        const displayTeamName = team.captain ? `${team.captain.nickname} 팀` : team.name;
+
+        return (
+        <Card key={team.id} className="p-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-bold text-white">{displayTeamName}</h3>
+              <p className="text-[11px] text-slate-400">
+                {team.memberCount}/{team.membersPerTeam}명
               </p>
             </div>
-            <div className="ml-auto text-right">
-              <p className="text-sm font-bold text-cyan-200">{team.pointsLeft}P</p>
-              {team.isFull ? (
-                <p className="mt-1 rounded-md border border-emerald-300/30 bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">
-                  정원 완료
-                </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <p className="text-right text-sm font-semibold text-cyan-200">{team.pointsLeft}P</p>
+              {canManageCaptains && isCaptainEditable ? (
+                <Button
+                  className="h-7 whitespace-nowrap px-2 text-xs"
+                  disabled={isPointsPending}
+                  onClick={() => setEditingPointsTeamId((current) => (current === team.id ? null : team.id))}
+                  type="button"
+                  variant="ghost"
+                >
+                  수정
+                </Button>
               ) : null}
             </div>
           </div>
+          {team.isFull ? (
+            <p className="mt-1 w-fit rounded border border-emerald-300/30 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
+              정원 완료
+            </p>
+          ) : null}
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          {editingPointsTeamId === team.id ? (
+            <form
+              action={pointsAction}
+              className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5"
+              onSubmit={() => setEditingPointsTeamId(null)}
+            >
+              <input name="auctionId" type="hidden" value={auctionId} />
+              <input name="auctionCode" type="hidden" value={auctionCode} />
+              <input name="teamId" type="hidden" value={team.id} />
+              <Input
+                className="h-8 text-xs"
+                defaultValue={team.pointsLeft}
+                disabled={!canManageCaptains || !isCaptainEditable || isPointsPending}
+                min={0}
+                name="pointsLeft"
+                step={1}
+                type="number"
+              />
+              <Button
+                className="h-8 px-2 text-xs"
+                disabled={!canManageCaptains || !isCaptainEditable || isPointsPending}
+                size="sm"
+                type="submit"
+                variant="secondary"
+              >
+                저장
+              </Button>
+              <Button
+                className="h-8 px-2 text-xs"
+                disabled={isPointsPending}
+                onClick={() => setEditingPointsTeamId(null)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                취소
+              </Button>
+            </form>
+          ) : null}
+
+          <div className="mt-2 grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-1.5">
             {team.captain ? (
               <TeamMemberPill imageUrl={team.captain.imageUrl} label="팀장" nickname={team.captain.nickname} />
             ) : (
-              <div className="rounded-md border border-dashed border-white/10 bg-slate-950/40 p-3 text-center text-xs text-slate-500">
+              <div className="grid min-h-14 place-items-center rounded-md border border-dashed border-white/10 bg-slate-950/40 p-1.5 text-center text-[10px] text-slate-500">
                 팀장 미설정
               </div>
             )}
@@ -124,33 +178,9 @@ export function CaptainSetupPanel({
             ))}
           </div>
 
-          <div className="mt-4 space-y-3">
-            <form action={pointsAction} className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <input name="auctionId" type="hidden" value={auctionId} />
-              <input name="auctionCode" type="hidden" value={auctionCode} />
-              <input name="teamId" type="hidden" value={team.id} />
-              <Input
-                defaultValue={team.pointsLeft}
-                disabled={!canManageCaptains || !isCaptainEditable || isPointsPending}
-                min={0}
-                name="pointsLeft"
-                step={1}
-                type="number"
-              />
-              <Button
-                disabled={!canManageCaptains || !isCaptainEditable || isPointsPending}
-                size="sm"
-                type="submit"
-                variant="secondary"
-              >
-                포인트 저장
-              </Button>
-            </form>
-            <input name="auctionId" type="hidden" value={auctionId} />
-            <input name="auctionCode" type="hidden" value={auctionCode} />
-            <input name="teamId" type="hidden" value={team.id} />
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
             <select
-              className="h-11 w-full rounded-md border border-white/10 bg-slate-950/70 px-3 text-sm text-slate-100 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 w-full rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!canManageCaptains || !isCaptainEditable || isPending}
               name="captainUserId"
               onChange={(event) =>
@@ -176,60 +206,47 @@ export function CaptainSetupPanel({
                 );
               })}
             </select>
-            <div className="space-y-2">
-              {participants
-                .filter((participant) => participant.userId === selectedCaptains[team.id])
-                .map((participant) => (
-                  <div key={participant.id} className="flex items-center gap-2 rounded-md bg-slate-950/60 p-2">
-                    <Avatar name={participant.user.nickname} size="sm" src={participant.user.imageUrl} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
-                      {participant.user.nickname}
-                    </span>
-                    {participant.user.mainRole ? <RoleBadge role={participant.user.mainRole} /> : null}
-                    {participant.user.subRole ? <RoleBadge role={participant.user.subRole} /> : null}
-                  </div>
-                ))}
-            </div>
-            <div className="flex gap-2">
-              <form action={formAction}>
-                <input name="intent" type="hidden" value="set" />
-                <input name="auctionId" type="hidden" value={auctionId} />
-                <input name="auctionCode" type="hidden" value={auctionCode} />
-                <input name="teamId" type="hidden" value={team.id} />
-                <input name="captainUserId" type="hidden" value={selectedCaptains[team.id] ?? ""} />
-                <Button
-                  disabled={
-                    !canManageCaptains ||
-                    !isCaptainEditable ||
-                    isPending ||
-                    !selectedCaptains[team.id] ||
-                    selectedCaptains[team.id] === team.captainId
-                  }
-                  size="sm"
-                  type="submit"
-                  variant="secondary"
-                >
-                  저장
-                </Button>
-              </form>
-              <form action={formAction}>
-                <input name="intent" type="hidden" value="unset" />
-                <input name="auctionId" type="hidden" value={auctionId} />
-                <input name="auctionCode" type="hidden" value={auctionCode} />
-                <input name="teamId" type="hidden" value={team.id} />
-                <Button
-                  disabled={!canManageCaptains || !isCaptainEditable || isPending || !team.captainId}
-                  size="sm"
-                  type="submit"
-                  variant="ghost"
-                >
-                  해제
-                </Button>
-              </form>
-            </div>
+            <form action={formAction}>
+              <input name="intent" type="hidden" value="set" />
+              <input name="auctionId" type="hidden" value={auctionId} />
+              <input name="auctionCode" type="hidden" value={auctionCode} />
+              <input name="teamId" type="hidden" value={team.id} />
+              <input name="captainUserId" type="hidden" value={selectedCaptains[team.id] ?? ""} />
+              <Button
+                className="h-8 px-2 text-xs"
+                disabled={
+                  !canManageCaptains ||
+                  !isCaptainEditable ||
+                  isPending ||
+                  !selectedCaptains[team.id] ||
+                  selectedCaptains[team.id] === team.captainId
+                }
+                size="sm"
+                type="submit"
+                variant="secondary"
+              >
+                저장
+              </Button>
+            </form>
+            <form action={formAction}>
+              <input name="intent" type="hidden" value="unset" />
+              <input name="auctionId" type="hidden" value={auctionId} />
+              <input name="auctionCode" type="hidden" value={auctionCode} />
+              <input name="teamId" type="hidden" value={team.id} />
+              <Button
+                className="h-8 px-2 text-xs"
+                disabled={!canManageCaptains || !isCaptainEditable || isPending || !team.captainId}
+                size="sm"
+                type="submit"
+                variant="ghost"
+              >
+                해제
+              </Button>
+            </form>
           </div>
         </Card>
-      ))}
+        );
+      })}
       {!canManageCaptains ? (
         <p className="text-xs text-slate-500">방장만 팀장을 설정할 수 있습니다.</p>
       ) : null}
@@ -250,9 +267,9 @@ function TeamMemberPill({
   nickname: string;
 }) {
   return (
-    <div className="flex min-h-24 flex-col items-center justify-center rounded-md border border-white/10 bg-slate-950/60 p-3 text-center">
+    <div className="flex min-h-14 flex-col items-center justify-center rounded-md border border-white/10 bg-slate-950/60 p-1.5 text-center">
       <Avatar name={nickname} size="sm" src={imageUrl} />
-      <p className="mt-2 w-full truncate text-xs font-semibold text-white">{nickname}</p>
+      <p className="mt-1 w-full truncate text-[10px] font-semibold text-white">{nickname}</p>
       {label ? <p className="mt-0.5 text-[10px] font-semibold text-cyan-200">{label}</p> : null}
     </div>
   );

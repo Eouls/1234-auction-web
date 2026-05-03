@@ -3,9 +3,9 @@ import { AUCTION_STATUS_LABELS } from "@/constants/lol";
 import { cn } from "@/lib/cn";
 
 const colors: Record<AuctionStatus, string> = {
-  WAITING: "border-amber-300/40 bg-amber-400/10 text-amber-200",
-  IN_PROGRESS: "border-cyan-300/40 bg-cyan-400/10 text-cyan-200",
-  ENDED: "border-slate-300/30 bg-slate-400/10 text-slate-300",
+  WAITING: "border-[color-mix(in_srgb,var(--warning)_45%,transparent)] bg-[var(--warning-soft)] text-[var(--warning)]",
+  IN_PROGRESS: "border-[color-mix(in_srgb,var(--accent)_45%,transparent)] bg-[var(--accent-soft)] text-[var(--accent)]",
+  ENDED: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
 };
 
 export function StatusBadge({ status }: { status: AuctionStatus }) {

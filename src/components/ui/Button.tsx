@@ -8,10 +8,10 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const variants = {
-  primary: "border-cyan-300/40 bg-cyan-400 text-slate-950 hover:bg-cyan-300",
-  secondary: "border-white/10 bg-white/10 text-slate-100 hover:bg-white/15",
-  ghost: "border-transparent bg-transparent text-slate-300 hover:bg-white/10 hover:text-white",
-  danger: "border-rose-300/40 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30",
+  primary: "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]",
+  secondary: "border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--surface-hover)]",
+  ghost: "border-transparent bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+  danger: "border-[color-mix(in_srgb,var(--danger)_45%,transparent)] bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_18%,transparent)]",
 };
 
 const sizes = {
@@ -30,7 +30,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md border font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-md border font-semibold shadow-sm shadow-[var(--shadow)] transition disabled:cursor-not-allowed disabled:opacity-50",
         variants[variant],
         sizes[size],
         className,

@@ -22,9 +22,7 @@ export default async function ProfileEditPage() {
     },
     include: {
       lolAccounts: {
-        orderBy: {
-          createdAt: "asc",
-        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
     },
   });

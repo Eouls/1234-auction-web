@@ -6,6 +6,7 @@ export type LolAccount = {
   id: string;
   gameName: string;
   tagLine: string;
+  sortOrder?: number;
 };
 
 export type UserProfile = {

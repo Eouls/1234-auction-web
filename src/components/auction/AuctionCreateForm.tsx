@@ -21,8 +21,8 @@ const initialState: CreateAuctionFormState = {};
 
 export function AuctionCreateForm() {
   const [state, formAction, isCreating] = useActionState(createAuction, initialState);
-  const [teamCount, setTeamCount] = useState(3);
-  const [membersPerTeam, setMembersPerTeam] = useState(5);
+  const [teamCount, setTeamCount] = useState("3");
+  const [membersPerTeam, setMembersPerTeam] = useState("5");
   const [nickname, setNickname] = useState("");
   const [participants, setParticipants] = useState<ParticipantPreview[]>([]);
   const [participantError, setParticipantError] = useState<string | null>(null);
@@ -30,10 +30,16 @@ export function AuctionCreateForm() {
   const pendingNicknameKeysRef = useRef(new Set<string>());
   const nicknameInputRef = useRef<HTMLInputElement>(null);
 
-  const requiredParticipantCount = useMemo(
-    () => Math.max(teamCount, 0) * Math.max(membersPerTeam, 0),
-    [membersPerTeam, teamCount],
-  );
+  const requiredParticipantCount = useMemo(() => {
+  const parsedTeamCount = Number(teamCount);
+  const parsedMembersPerTeam = Number(membersPerTeam);
+
+  if (!Number.isFinite(parsedTeamCount) || !Number.isFinite(parsedMembersPerTeam)) {
+    return 0;
+  }
+
+  return Math.max(parsedTeamCount, 0) * Math.max(parsedMembersPerTeam, 0);
+}, [membersPerTeam, teamCount]);
 
   async function addParticipant() {
     const normalizedNickname = nickname.trim();
@@ -121,14 +127,14 @@ export function AuctionCreateForm() {
         <SectionTitle title="1단계: 경매 설정" />
         <div className="grid gap-4">
           <Field error={state.fieldErrors?.title} label="경매 제목">
-            <Input defaultValue="금요일 1234 내전 경매" name="title" />
+            <Input defaultValue="" name="title" />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field error={state.fieldErrors?.teamCount} label="총 팀 수">
               <Input
                 min={2}
                 name="teamCount"
-                onChange={(event) => setTeamCount(Number(event.target.value))}
+                onChange={(event) => setTeamCount(event.target.value)}
                 type="number"
                 value={teamCount}
               />
@@ -137,7 +143,7 @@ export function AuctionCreateForm() {
               <Input
                 min={1}
                 name="membersPerTeam"
-                onChange={(event) => setMembersPerTeam(Number(event.target.value))}
+                onChange={(event) => setMembersPerTeam(event.target.value)}
                 type="number"
                 value={membersPerTeam}
               />
@@ -148,7 +154,7 @@ export function AuctionCreateForm() {
               <Input min={5} name="auctionSeconds" type="number" defaultValue={30} />
             </Field>
             <Field error={state.fieldErrors?.extendSeconds} label="입찰 추가 시간(초)">
-              <Input min={0} name="extendSeconds" type="number" defaultValue={10} />
+              <Input min={0} name="extendSeconds" type="number" defaultValue={5} />
             </Field>
           </div>
           <Field error={state.fieldErrors?.startPoints} label="경매 시작 포인트">

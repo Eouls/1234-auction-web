@@ -201,11 +201,11 @@ export function BidControls({
             </Button>
           </form>
         ))}
-        <form action={bidAction} className="flex gap-2">
+        <form action={bidAction} className="flex min-w-[190px] gap-2">
           <input name="auctionId" type="hidden" value={auctionId} />
           <input name="auctionCode" type="hidden" value={auctionCode} />
           <Input
-            className="w-32"
+            className="min-w-0 flex-1"
             disabled={bidDisabled}
             min={5}
             name="bidAmount"
@@ -215,7 +215,7 @@ export function BidControls({
             type="number"
             value={directAmount}
           />
-          <Button disabled={bidDisabled || !directBidAmount} type="submit">
+          <Button className="min-w-14 whitespace-nowrap" disabled={bidDisabled || !directBidAmount} type="submit">
             입찰
           </Button>
         </form>

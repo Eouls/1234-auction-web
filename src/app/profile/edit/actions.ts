@@ -235,10 +235,11 @@ export async function updateProfile(
       });
 
       await tx.lolAccount.createMany({
-        data: accounts.map((account) => ({
+        data: accounts.map((account, index) => ({
           userId: user.id,
           gameName: account.gameName,
           tagLine: account.tagLine,
+          sortOrder: index,
         })),
       });
     });

@@ -9,11 +9,11 @@ export const LOL_ROLE_LABELS: Record<LolRole, string> = {
 };
 
 export const LOL_ROLE_COLORS: Record<LolRole, string> = {
-  TOP: "border-red-400/40 bg-red-500/10 text-red-200",
-  JUNGLE: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
-  MID: "border-sky-400/40 bg-sky-500/10 text-sky-200",
-  ADC: "border-amber-400/40 bg-amber-500/10 text-amber-200",
-  SUPPORT: "border-violet-400/40 bg-violet-500/10 text-violet-200",
+  TOP: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
+  JUNGLE: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
+  MID: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
+  ADC: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
+  SUPPORT: "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground-muted)]",
 };
 
 export const AUCTION_STATUS_LABELS: Record<AuctionStatus, string> = {

@@ -21,7 +21,7 @@ export function Avatar({ name, src, size = "md", className }: AvatarProps) {
     <div
       aria-label={`${name} 프로필 이미지`}
       className={cn(
-        "grid shrink-0 place-items-center rounded-full border border-cyan-300/30 bg-gradient-to-br from-slate-700 to-cyan-950 font-bold text-cyan-100",
+        "grid shrink-0 place-items-center rounded-full border border-[var(--border-strong)] bg-[var(--surface-muted)] font-bold text-[var(--foreground-muted)]",
         sizes[size],
         className,
       )}

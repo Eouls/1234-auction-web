@@ -12,7 +12,7 @@ import {
   SectionTitle,
 } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
-import { filterValidChampionNames } from "@/lib/riot/champions";
+import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
 
@@ -23,7 +23,10 @@ type AuctionResultPageProps = {
 type ResultMember = {
   account: string;
   bioLabel: string;
-  champions: string[];
+  champions: Array<{
+    imageUrl: string | null;
+    name: string;
+  }>;
   id: string;
   imageUrl: string | null;
   isCaptain: boolean;
@@ -60,7 +63,7 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
         include: {
           captain: {
             include: {
-              lolAccounts: { orderBy: { createdAt: "asc" } },
+              lolAccounts: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
               lolStats: true,
             },
           },
@@ -71,7 +74,7 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
         include: {
           user: {
             include: {
-              lolAccounts: { orderBy: { createdAt: "asc" } },
+              lolAccounts: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
               lolStats: true,
             },
           },
@@ -103,7 +106,7 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
             "팀장",
             true,
             undefined,
-            await getValidUserChampionNames(team.captain.lolStats),
+            await getValidUserChampions(team.captain.lolStats),
           )
         : null;
       const soldParticipants = auction.participants
@@ -116,7 +119,7 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
             getPointLabel(participant.soldPrice),
             false,
             participant.id,
-            await getValidUserChampionNames(participant.user.lolStats),
+            await getValidUserChampions(participant.user.lolStats),
           ),
         ),
       );
@@ -252,7 +255,9 @@ function MemberCard({ member }: { member: ResultMember }) {
       </p>
       <div className="mt-3 flex gap-2">
         {member.champions.length ? (
-          member.champions.map((champion) => <ChampionIconPlaceholder key={champion} name={champion} />)
+          member.champions.map((champion) => (
+            <ChampionIconPlaceholder imageUrl={champion.imageUrl} key={champion.name} name={champion.name} />
+          ))
         ) : (
           <>
             <ChampionIconPlaceholder name="정보 없음" />
@@ -284,12 +289,12 @@ function toResultMember(
   bioLabel: string,
   isCaptain: boolean,
   participantId?: string,
-  validChampionNames?: Array<string | null>,
+  validChampions?: Array<{ imageUrl: string | null; name: string } | null>,
 ): ResultMember {
   return {
     account: formatAccount(user.lolAccounts[0]),
     bioLabel,
-    champions: (validChampionNames ?? []).filter(Boolean) as string[],
+    champions: (validChampions ?? []).filter(Boolean) as Array<{ imageUrl: string | null; name: string }>,
     id: participantId ?? user.id,
     imageUrl: user.customProfileImageUrl ?? user.discordAvatarUrl,
     isCaptain,
@@ -299,14 +304,14 @@ function toResultMember(
   };
 }
 
-async function getValidUserChampionNames(
+async function getValidUserChampions(
   lolStats: {
     mostChampion1: string | null;
     mostChampion2: string | null;
     mostChampion3: string | null;
   } | null,
 ) {
-  return filterValidChampionNames([
+  return resolveChampionIcons([
     lolStats?.mostChampion1,
     lolStats?.mostChampion2,
     lolStats?.mostChampion3,

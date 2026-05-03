@@ -40,7 +40,7 @@ export async function refreshRiotStats({
     where: { authUserId: authUser.id },
     include: {
       lolAccounts: {
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       lolStats: true,
     },

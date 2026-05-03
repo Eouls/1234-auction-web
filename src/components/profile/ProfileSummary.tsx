@@ -58,7 +58,11 @@ export function ProfileSummary({ profile }: ProfileSummaryProps) {
           <div className="mt-2 flex gap-2">
             {champions.length ? (
               champions.map((champion) => (
-                <ChampionIconPlaceholder key={champion.name} name={champion.name ?? "정보 없음"} />
+                <ChampionIconPlaceholder
+                  imageUrl={champion.imageUrl}
+                  key={champion.name}
+                  name={champion.name ?? "정보 없음"}
+                />
               ))
             ) : (
               <span className="text-sm text-slate-500">정보 없음</span>
