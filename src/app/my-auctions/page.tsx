@@ -1,39 +1,104 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { AuctionStatus } from "@/generated/prisma/client";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
-import { dummyAuctions } from "@/constants/dummy-data";
+import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/supabase/server";
+import type { AuctionStatus as UiAuctionStatus } from "@/types/auction";
 
-export default function MyAuctionsPage() {
+export default async function MyAuctionsPage() {
+  const supabase = await createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  if (!authUser) {
+    redirect("/auth/login");
+  }
+
+  const currentUser = await prisma.user.findUnique({
+    where: { authUserId: authUser.id },
+    select: { id: true },
+  });
+
+  if (!currentUser) {
+    redirect("/onboarding");
+  }
+
+  const auctions = await prisma.auction.findMany({
+    where: {
+      OR: [
+        { ownerId: currentUser.id },
+        {
+          participants: {
+            some: {
+              userId: currentUser.id,
+            },
+          },
+        },
+      ],
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      _count: {
+        select: {
+          participants: true,
+        },
+      },
+    },
+  });
+
   return (
     <AppShell>
       <PageHeader
         eyebrow="My Auctions"
         title="나의 경매"
-        description="내가 참여자로 등록된 경매 목록입니다."
+        description="내가 만들었거나 참가자로 등록된 경매 목록입니다."
       />
       <section className="mt-8 grid gap-4 lg:grid-cols-3">
-        {dummyAuctions.map((auction) => (
-          <Card key={auction.id} className="p-5">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-lg font-bold text-white">{auction.title}</h2>
-              <StatusBadge status={auction.status} />
-            </div>
-            <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-              <Info label="팀 수" value={`${auction.teamCount}`} />
-              <Info label="팀당 인원" value={`${auction.membersPerTeam}`} />
-              <Info label="참가자 수" value={`${auction.participantCount}`} />
-              <Info label="방 코드" value={auction.code} />
-            </dl>
-            <Link href={auction.status === "ENDED" ? `/auctions/${auction.code}/result` : `/auctions/${auction.code}`} className="mt-5 block">
-              <Button type="button" className="w-full" variant={auction.status === "ENDED" ? "secondary" : "primary"}>
-                {auction.status === "ENDED" ? "결과 확인" : "입장하기"}
-              </Button>
-            </Link>
-          </Card>
-        ))}
+        {auctions.map((auction) => {
+          const isEnded = auction.status === AuctionStatus.FINISHED || auction.status === AuctionStatus.CANCELED;
+
+          return (
+            <Card key={auction.id} className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-white">{auction.title}</h2>
+                  {auction.ownerId === currentUser.id ? (
+                    <p className="mt-1 text-xs font-semibold text-cyan-200">방장</p>
+                  ) : null}
+                </div>
+                <StatusBadge status={toUiStatus(auction.status)} />
+              </div>
+              <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                <Info label="팀 수" value={`${auction.teamCount}`} />
+                <Info label="팀당 인원" value={`${auction.membersPerTeam}`} />
+                <Info label="참가자 수" value={`${auction._count.participants}`} />
+                <Info label="방 코드" value={auction.code} />
+              </dl>
+              <Link
+                className="mt-5 block"
+                href={isEnded ? `/auctions/${auction.code}/result` : `/auctions/${auction.code}`}
+              >
+                <Button className="w-full" type="button" variant={isEnded ? "secondary" : "primary"}>
+                  {isEnded ? "결과 확인" : "입장하기"}
+                </Button>
+              </Link>
+            </Card>
+          );
+        })}
       </section>
     </AppShell>
   );
+}
+
+function toUiStatus(status: AuctionStatus): UiAuctionStatus {
+  if (status === AuctionStatus.FINISHED || status === AuctionStatus.CANCELED) return "ENDED";
+  if (status === AuctionStatus.RUNNING || status === AuctionStatus.PAUSED) return "IN_PROGRESS";
+  return "WAITING";
 }
 
 function Info({ label, value }: { label: string; value: string }) {

@@ -66,6 +66,9 @@ export function ProfileSummary({ profile }: ProfileSummaryProps) {
           </div>
         </div>
       </div>
+      {(profile.peakTier || champions.length) ? (
+        <p className="mt-3 text-xs text-slate-500">최고 티어 및 모스트 챔피언 출처: OP.GG</p>
+      ) : null}
       <div className="mt-6">
         <p className="text-xs font-semibold text-slate-500">롤 계정</p>
         <div className="mt-2 flex flex-wrap gap-2">

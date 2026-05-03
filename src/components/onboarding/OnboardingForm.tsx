@@ -17,9 +17,7 @@ type AccountInput = {
 
 export function OnboardingForm() {
   const [state, formAction, isPending] = useActionState(saveOnboarding, initialState);
-  const [accounts, setAccounts] = useState<AccountInput[]>([
-    { id: Date.now(), gameName: "", tagLine: "" },
-  ]);
+  const [accounts, setAccounts] = useState<AccountInput[]>([{ id: 1, gameName: "", tagLine: "" }]);
 
   function updateAccount(id: number, field: "gameName" | "tagLine", value: string) {
     setAccounts((currentAccounts) =>
@@ -32,7 +30,7 @@ export function OnboardingForm() {
   function addAccount() {
     setAccounts((currentAccounts) => [
       ...currentAccounts,
-      { id: Date.now() + currentAccounts.length, gameName: "", tagLine: "" },
+      { id: Math.max(...currentAccounts.map((account) => account.id)) + 1, gameName: "", tagLine: "" },
     ]);
   }
 

@@ -1,0 +1,205 @@
+import type { Browser } from "playwright";
+
+type SeasonTierCandidate = {
+  rank: string | null;
+  raw: string;
+  tier: string | null;
+};
+
+export async function fetchFullSeasonPeakTierWithBrowser(params: {
+  gameName: string;
+  tagLine: string;
+}): Promise<{
+  peakRank?: string | null;
+  peakTier?: string;
+  success: boolean;
+  warning?: string;
+}> {
+  let browser: Browser | null = null;
+  const normalizedGameName = params.gameName.trim();
+  const normalizedTagLine = params.tagLine.trim().replace(/^#/, "");
+  const encodedSummoner = `${encodeURIComponent(normalizedGameName)}-${encodeURIComponent(normalizedTagLine)}`;
+  const url = `https://op.gg/ko/lol/summoners/kr/${encodedSummoner}`;
+
+  try {
+    console.log("[opgg-profile] use playwright full season lookup", { url });
+
+    const { chromium } = await import("playwright");
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      locale: "ko-KR",
+      userAgent: "1234-auction-web/1.0",
+    });
+    const page = await context.newPage();
+
+    await page.goto(url, {
+      timeout: 30_000,
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
+
+    const allSeasonsLocator = page.getByText("모든 시즌 티어 보기", { exact: true }).first();
+    const hasAllSeasonsButton = (await allSeasonsLocator.count().catch(() => 0)) > 0;
+
+    if (!hasAllSeasonsButton) {
+      console.warn("[opgg-profile] all seasons button not found", { url });
+      return {
+        success: false,
+        warning: "전체 시즌 펼침 버튼을 찾지 못해 기본 표시 데이터만 사용했습니다.",
+      };
+    }
+
+    await allSeasonsLocator.click({ timeout: 8_000 });
+    console.log("[opgg-profile] clicked all seasons button");
+    await page
+      .waitForFunction(
+        () => {
+          const text = document.body.innerText;
+          return text.includes("닫기") || text.includes("S9") || text.includes("S8") || text.includes("S7");
+        },
+        undefined,
+        { timeout: 8_000 },
+      )
+      .catch(() => undefined);
+
+    const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
+    const candidates = parseSeasonTierCandidates(bodyText);
+    const peak = pickHighestSeasonTier(candidates);
+
+    console.log("[opgg-profile] playwright body text contains legacy seasons", {
+      hasS9: bodyText.includes("S9"),
+      hasDiamond3: bodyText.toLowerCase().includes("diamond 3"),
+      hasS8: bodyText.includes("S8"),
+      hasS7: bodyText.includes("S7"),
+      sample: bodyText.slice(0, 1000),
+    });
+    console.log("[opgg-profile] full season tier candidates", candidates);
+    console.log("[opgg-profile] final full peak tier", {
+      finalPeakTier: peak?.tier ?? null,
+      finalPeakRank: peak?.rank ?? null,
+    });
+
+    if (!peak?.tier) {
+      return {
+        success: false,
+        warning: "전체 시즌 티어 후보를 찾지 못해 기본 표시 데이터만 사용했습니다.",
+      };
+    }
+
+    return {
+      success: true,
+      peakTier: peak.tier,
+      peakRank: peak.rank,
+    };
+  } catch (error) {
+    console.warn("[opgg-profile] playwright full season lookup failed", {
+      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+      url,
+    });
+    return {
+      success: false,
+      warning: "전체 시즌 펼침 조회에 실패해 기본 표시 데이터만 사용했습니다.",
+    };
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
+}
+
+function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {
+  const seasonTierRegex =
+    /\b(S20\d{2}(?:\s+S\d)?|S\d{1,2})\s+(challenger|grandmaster|master|diamond|emerald|platinum|gold|silver|bronze|iron|챌린저|그랜드마스터|마스터|다이아몬드|에메랄드|플래티넘|골드|실버|브론즈|아이언)\s*([1-5]|I|II|III|IV|V)?\b/gi;
+  const candidates: SeasonTierCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const match of text.matchAll(seasonTierRegex)) {
+    const tier = normalizeTier(match[2] ?? null);
+    const rank = normalizeRank(match[3] ?? null);
+    const raw = match[0].trim();
+    const key = `${raw}:${tier}:${rank}`;
+
+    if (!tier) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    candidates.push({ raw, tier, rank });
+  }
+
+  return candidates;
+}
+
+function pickHighestSeasonTier<T extends { rank: string | null; tier: string | null }>(candidates: T[]) {
+  return candidates.reduce<T | null>((highest, candidate) => {
+    if (!candidate.tier) return highest;
+    if (!highest) return candidate;
+    return compareSeasonTier(candidate, highest) > 0 ? candidate : highest;
+  }, null);
+}
+
+function compareSeasonTier(
+  first: { rank: string | null; tier: string | null },
+  second: { rank: string | null; tier: string | null },
+) {
+  const firstTierScore = tierScores[first.tier ?? "UNRANKED"] ?? 0;
+  const secondTierScore = tierScores[second.tier ?? "UNRANKED"] ?? 0;
+
+  if (firstTierScore !== secondTierScore) return firstTierScore - secondTierScore;
+
+  return (rankScores[first.rank ?? "V"] ?? 0) - (rankScores[second.rank ?? "V"] ?? 0);
+}
+
+function normalizeTier(value: string | null) {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, "_");
+  const koreanTierMap: Record<string, string> = {
+    챌린저: "CHALLENGER",
+    그랜드마스터: "GRANDMASTER",
+    마스터: "MASTER",
+    다이아몬드: "DIAMOND",
+    에메랄드: "EMERALD",
+    플래티넘: "PLATINUM",
+    골드: "GOLD",
+    실버: "SILVER",
+    브론즈: "BRONZE",
+    아이언: "IRON",
+  };
+  const tier = koreanTierMap[value.trim()] ?? normalized;
+
+  return tier in tierScores && tier !== "UNRANKED" ? tier : null;
+}
+
+function normalizeRank(value: string | null) {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  const numberRankMap: Record<string, string> = {
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+  };
+  const rank = numberRankMap[normalized] ?? normalized;
+
+  return rank in rankScores ? rank : null;
+}
+
+const tierScores: Record<string, number> = {
+  CHALLENGER: 10,
+  GRANDMASTER: 9,
+  MASTER: 8,
+  DIAMOND: 7,
+  EMERALD: 6,
+  PLATINUM: 5,
+  GOLD: 4,
+  SILVER: 3,
+  BRONZE: 2,
+  IRON: 1,
+  UNRANKED: 0,
+};
+
+const rankScores: Record<string, number> = {
+  I: 5,
+  II: 4,
+  III: 3,
+  IV: 2,
+  V: 1,
+};

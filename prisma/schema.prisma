@@ -116,17 +116,18 @@ model Auction {
 }
 
 model AuctionParticipant {
-  id        String            @id @default(cuid())
-  auctionId String
-  userId    String
-  status    ParticipantStatus @default(WAITING)
-  teamId    String?
-  soldPrice Int?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  auction   Auction           @relation(fields: [auctionId], references: [id], onDelete: Cascade)
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      AuctionTeam?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  id           String            @id @default(cuid())
+  auctionId    String
+  userId       String
+  status       ParticipantStatus @default(WAITING)
+  teamId       String?
+  soldPrice    Int?
+  auctionOrder Int?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  auction      Auction           @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         AuctionTeam?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   @@unique([auctionId, userId])
 }
