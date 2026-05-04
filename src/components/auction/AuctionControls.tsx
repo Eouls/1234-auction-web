@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -94,8 +95,13 @@ export function BidControls({
   const [isAutoFinalizing, startAutoFinalizeTransition] = useTransition();
   const [directAmount, setDirectAmount] = useState("");
   const [remainingSeconds, setRemainingSeconds] = useState(() => getRemainingSeconds(currentRoundEndAt));
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
+  const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
   const isAutoFinalizingRef = useRef(false);
+  const playedSecondKeysRef = useRef<Set<string>>(new Set());
+  const roundKeyRef = useRef("");
+  const soundRoundKeyRef = useRef("");
 
   useEffect(() => {
     const updateRemainingSeconds = () => {
@@ -116,6 +122,7 @@ export function BidControls({
   const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isTimeOver || isBidding;
   const directBidAmount = Number(directAmount);
   const roundKey = `${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
+  const soundRoundKey = `${auctionId}:${currentTargetParticipantId ?? "no-target"}`;
 
   const presetAmounts = useMemo(
     () => [5, 10, 50, 100].map((increment) => currentBidAmount + increment),
@@ -123,16 +130,88 @@ export function BidControls({
   );
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const storedValue = window.localStorage.getItem("auction-countdown-sound");
+      if (storedValue === "off") setIsSoundEnabled(false);
+      if (storedValue === "on") setIsSoundEnabled(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("auction-countdown-sound", isSoundEnabled ? "on" : "off");
+  }, [isSoundEnabled]);
+
+  useEffect(() => {
     if (!bidState.success) return;
     router.refresh();
   }, [bidState.success, router]);
+
+  useEffect(() => {
+    roundKeyRef.current = roundKey;
+  }, [roundKey]);
+
+  useEffect(() => {
+    if (soundRoundKeyRef.current === soundRoundKey) return;
+
+    soundRoundKeyRef.current = soundRoundKey;
+    Array.from(endSoundPlayedKeysRef.current).forEach((key) => {
+      if (key.startsWith(`${soundRoundKey}:`)) return;
+      endSoundPlayedKeysRef.current.delete(key);
+    });
+    Array.from(playedSecondKeysRef.current).forEach((key) => {
+      if (key.startsWith(`${soundRoundKey}:`)) return;
+      playedSecondKeysRef.current.delete(key);
+    });
+  }, [soundRoundKey]);
+
+  useEffect(() => {
+    if (!isSoundEnabled || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+
+    if (remainingSeconds >= 1 && remainingSeconds <= 10) {
+      const playedKey = `${soundRoundKey}:${remainingSeconds}`;
+      if (playedSecondKeysRef.current.has(playedKey)) return;
+
+      playedSecondKeysRef.current.add(playedKey);
+      playCountdownSound("/sounds/countdown-beep.mp3");
+      return;
+    }
+
+    if (remainingSeconds === 0) {
+      const endSoundKey = `${soundRoundKey}:end`;
+      if (endSoundPlayedKeysRef.current.has(endSoundKey)) return;
+
+      endSoundPlayedKeysRef.current.add(endSoundKey);
+      playCountdownSound("/sounds/countdown-end.mp3");
+    }
+  }, [
+    currentRoundEndAt,
+    currentTargetParticipantId,
+    hasTarget,
+    isRunning,
+    isSoundEnabled,
+    remainingSeconds,
+    soundRoundKey,
+  ]);
 
   useEffect(() => {
     if (!isOwner || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
     if (remainingSeconds > 0) return;
     if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
+    const finalizeRoundKey = roundKey;
+    const endSoundKey = `${soundRoundKey}:end`;
+
+    if (isSoundEnabled && !endSoundPlayedKeysRef.current.has(endSoundKey)) {
+      endSoundPlayedKeysRef.current.add(endSoundKey);
+      playCountdownSound("/sounds/countdown-end.mp3");
+    }
+
     const timeout = window.setTimeout(() => {
+      if (roundKeyRef.current !== finalizeRoundKey) return;
       if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
       autoFinalizeKeysRef.current.add(roundKey);
@@ -173,15 +252,30 @@ export function BidControls({
     hasTarget,
     isOwner,
     isRunning,
+    isSoundEnabled,
     remainingSeconds,
     router,
     roundKey,
+    soundRoundKey,
   ]);
 
   return (
     <Card className="p-6">
       <div className="grid gap-4 lg:grid-cols-3">
-        <Info label="남은 시간" value={isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"} strong />
+        <Info
+          action={
+            <button
+              className="rounded border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/10"
+              onClick={() => setIsSoundEnabled((currentValue) => !currentValue)}
+              type="button"
+            >
+              {isSoundEnabled ? "효과음 켜짐" : "효과음 꺼짐"}
+            </button>
+          }
+          label="남은 시간"
+          value={isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
+          strong
+        />
         <Info label="현재 최고 입찰 팀" value={currentBidTeamName} strong />
         <Info label="현재 최고 입찰가" value={`${currentBidAmount}P`} strong />
       </div>
@@ -248,10 +342,34 @@ function getRemainingSeconds(date: string | null) {
   return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 1000));
 }
 
-function Info({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+function playCountdownSound(src: string) {
+  const audio = new Audio(src);
+  audio.currentTime = 0;
+  audio.play().catch((error: unknown) => {
+    console.warn("[auction-countdown-sound] play failed", {
+      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+      src,
+    });
+  });
+}
+
+function Info({
+  action,
+  label,
+  value,
+  strong = false,
+}: {
+  action?: ReactNode;
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
     <div className="rounded-md border border-white/10 bg-slate-950/60 p-3">
-      <p className="text-xs text-slate-500">{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-slate-500">{label}</p>
+        {action}
+      </div>
       <p className={strong ? "mt-1 text-xl font-black text-cyan-200" : "mt-1 text-sm font-semibold text-slate-100"}>
         {value}
       </p>

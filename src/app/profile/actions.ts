@@ -277,7 +277,9 @@ async function getInvalidExistingChampionCleanup(
   const { validChampions } = await validateChampionCandidates(
     existingChampions.filter(Boolean).map((name) => ({ name: name as string })),
   );
-  const validNameSet = new Set(validChampions.map((champion) => champion.name.toLowerCase()));
+  const validNameSet = new Set(
+    validChampions.flatMap((champion) => [champion.name.toLowerCase(), champion.englishName.toLowerCase(), champion.id.toLowerCase()]),
+  );
   const cleanup: Record<string, null> = {};
 
   existingChampions.forEach((name, index) => {

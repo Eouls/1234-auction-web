@@ -2,15 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AuctionStatus, ParticipantStatus } from "@/generated/prisma/client";
 import { AppShell } from "@/components/layout/AppShell";
-import {
-  Avatar,
-  Button,
-  Card,
-  ChampionIconPlaceholder,
-  PageHeader,
-  RoleBadge,
-  SectionTitle,
-} from "@/components/ui";
+import { InternalMatchRecorder } from "@/components/auction/InternalMatchRecorder";
+import { Avatar, Button, Card, PageHeader, RoleBadge, SectionTitle } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
 import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
@@ -80,6 +73,18 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
           },
         },
       },
+      internalMatches: {
+        orderBy: [{ gameNumber: "desc" }, { createdAt: "desc" }],
+        include: {
+          players: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              auctionTeam: true,
+              user: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -132,9 +137,19 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
       };
     }),
   );
+  const internalMatchPlayers = auction.internalMatches.flatMap((match) => match.players);
+  const internalMatchChampionIcons = await resolveChampionIcons(
+    internalMatchPlayers.map((player) => player.championName),
+  );
+  const internalMatchChampionNameByPlayerId = new Map(
+    internalMatchPlayers.map((player, index) => [
+      player.id,
+      internalMatchChampionIcons[index]?.name ?? player.championName,
+    ]),
+  );
 
   return (
-    <AppShell>
+    <AppShell contentClassName="max-w-[1720px] px-4 lg:px-6 2xl:px-8">
       <PageHeader
         eyebrow={`Result ${auction.code}`}
         title={`${auction.title} 결과`}
@@ -172,23 +187,29 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
         </button>
       </Card>
 
-      <section className="mt-8 grid gap-5 xl:grid-cols-2">
+      <InternalMatchRecorder auctionCode={auction.code} auctionId={auction.id} />
+
+      <section className="mt-6 space-y-4">
         {resultTeams.map(({ captainMember, memberCount, soldMembers, team }) => {
+          const displayTeamName = team.captain ? `${team.captain.nickname} 팀` : team.name;
+
           return (
-            <Card key={team.id} className="p-5">
-              <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-black text-white">{team.name}</h2>
-                  <p className="mt-1 text-sm text-slate-400">
+            <Card key={team.id} className="p-4">
+              <div className="mb-3 flex flex-col gap-2 border-b border-white/10 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="truncate text-lg font-black text-white">{displayTeamName}</h2>
+                    <span className="rounded-md border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-xs font-bold text-cyan-100">
+                      잔여 {team.pointsLeft}P
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
                     팀장 {team.captain?.nickname ?? "미설정"} · {memberCount}명
                   </p>
                 </div>
-                <div className="rounded-md border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-sm font-bold text-cyan-100">
-                  잔여 {team.pointsLeft}P
-                </div>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {captainMember ? <MemberCard member={captainMember} /> : null}
                 {soldMembers.map((member) => (
                   <MemberCard key={member.id} member={member} />
@@ -202,23 +223,86 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
       {unsoldParticipants.length ? (
         <section className="mt-8">
           <SectionTitle title="유찰 참가자" description="낙찰되지 않고 경매가 종료된 참가자입니다." />
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {unsoldParticipants.map((participant) => (
-              <Card key={participant.id} className="p-4">
-                <div className="flex items-center gap-3">
+              <Card key={participant.id} className="p-3">
+                <div className="flex items-center gap-2">
                   <Avatar
                     name={participant.user.nickname}
                     size="sm"
                     src={participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-white">{participant.user.nickname}</p>
-                    <p className="truncate text-xs text-slate-500">{formatAccount(participant.user.lolAccounts[0])}</p>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p className="truncate text-sm font-bold text-white">{participant.user.nickname}</p>
+                      <span className="shrink-0 rounded border border-rose-300/30 bg-rose-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-200">
+                        유찰
+                      </span>
+                    </div>
+                    <p className="truncate text-[11px] text-slate-500">{formatAccount(participant.user.lolAccounts[0])}</p>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     {participant.user.mainRole ? <RoleBadge role={participant.user.mainRole as LolRole} /> : null}
                     {participant.user.subRole ? <RoleBadge role={participant.user.subRole as LolRole} /> : null}
                   </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {auction.internalMatches.length ? (
+        <section className="mt-8">
+          <SectionTitle title="저장된 내전 기록" description="캡처 분석 후 확인 저장된 사용자 설정 경기 기록입니다." />
+          <div className="mt-4 space-y-3">
+            {auction.internalMatches.map((match) => (
+              <Card key={match.id} className="p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-white">
+                      {match.gameNumber}경기 / {match.winningSide} 승리
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {new Intl.DateTimeFormat("ko-KR", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      }).format(match.playedAt)}
+                    </p>
+                  </div>
+                  {match.screenshotUrl ? (
+                    <a className="text-xs font-semibold text-cyan-200" href={match.screenshotUrl} rel="noreferrer" target="_blank">
+                      스크린샷 보기
+                    </a>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {match.players.map((player) => (
+                    <div className="rounded-md border border-white/10 bg-slate-950/50 px-3 py-2" key={player.id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {player.user?.nickname ?? player.rawPlayerName ?? "미매칭 플레이어"}
+                        </p>
+                        <span
+                          className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                            player.win
+                              ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+                              : "border-rose-300/30 bg-rose-400/10 text-rose-200"
+                          }`}
+                        >
+                          {player.win ? "승" : "패"}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-slate-500">
+                        {player.side}
+                        {player.auctionTeam ? ` · ${player.auctionTeam.captainId ? `${player.auctionTeam.name}` : player.auctionTeam.name}` : ""}
+                        {internalMatchChampionNameByPlayerId.get(player.id) ? ` · ${internalMatchChampionNameByPlayerId.get(player.id)}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-300">
+                        {player.kills ?? "-"} / {player.deaths ?? "-"} / {player.assists ?? "-"}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </Card>
             ))}
@@ -231,42 +315,31 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
 
 function MemberCard({ member }: { member: ResultMember }) {
   return (
-    <div className="rounded-md border border-white/10 bg-slate-950/70 p-4">
-      <div className="flex items-start gap-3">
-        <Avatar name={member.nickname} size="lg" src={member.imageUrl} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate font-bold text-white">{member.nickname}</h3>
-            {member.isCaptain ? (
-              <span className="shrink-0 rounded bg-cyan-300 px-1.5 py-0.5 text-[10px] font-black text-slate-950">
-                팀장
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 truncate text-xs text-slate-500">{member.account}</p>
+    <div className="relative rounded-md border border-white/10 bg-slate-950/70 p-3">
+      {member.isCaptain ? (
+        <span className="absolute left-2 top-2 z-10 rounded bg-cyan-300 px-1.5 py-0.5 text-[10px] font-black text-slate-950">
+          팀장
+        </span>
+      ) : null}
+      <div className="flex gap-3">
+        <Avatar className="h-20 w-20 text-lg" name={member.nickname} src={member.imageUrl} />
+        <div className="min-w-0 flex-1 py-0.5">
+          <h3 className="truncate text-sm font-bold text-white">{member.nickname}</h3>
+          <p className="mt-0.5 truncate text-[11px] text-slate-500">{member.account}</p>
+          <p className="mt-2 w-fit rounded-md border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-xs font-bold text-cyan-100">
+            {member.bioLabel}
+          </p>
           <div className="mt-2 flex flex-wrap gap-1">
             {member.mainRole ? <RoleBadge role={member.mainRole} /> : null}
             {member.subRole ? <RoleBadge role={member.subRole} /> : null}
           </div>
+          {member.champions.length ? (
+            <p className="mt-2 truncate text-[10px] text-slate-500">
+              OP.GG · {member.champions.map((champion) => champion.name).join(" / ")}
+            </p>
+          ) : null}
         </div>
       </div>
-      <p className="mt-3 rounded-md border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-sm font-bold text-cyan-100">
-        {member.bioLabel}
-      </p>
-      <div className="mt-3 flex gap-2">
-        {member.champions.length ? (
-          member.champions.map((champion) => (
-            <ChampionIconPlaceholder imageUrl={champion.imageUrl} key={champion.name} name={champion.name} />
-          ))
-        ) : (
-          <>
-            <ChampionIconPlaceholder name="정보 없음" />
-            <ChampionIconPlaceholder name="정보 없음" />
-            <ChampionIconPlaceholder name="정보 없음" />
-          </>
-        )}
-      </div>
-      {member.champions.length ? <p className="mt-2 text-xs text-slate-500">Source: OP.GG</p> : null}
     </div>
   );
 }

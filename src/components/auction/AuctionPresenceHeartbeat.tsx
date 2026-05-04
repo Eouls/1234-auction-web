@@ -10,7 +10,8 @@ type AuctionPresenceHeartbeatProps = {
   isParticipant: boolean;
 };
 
-const HEARTBEAT_INTERVAL_MS = 10 * 1000;
+const HEARTBEAT_INTERVAL_MS = 5 * 1000;
+const REFRESH_INTERVAL_MS = 3 * 1000;
 
 export function AuctionPresenceHeartbeat({
   auctionId,
@@ -21,32 +22,39 @@ export function AuctionPresenceHeartbeat({
   const isRecordingRef = useRef(false);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !isParticipant) return;
 
-    let isMounted = true;
-
-    async function refreshPresence() {
+    async function recordPresence() {
       if (isRecordingRef.current) return;
       isRecordingRef.current = true;
 
       try {
-        if (isParticipant) {
-          await recordAuctionPresence(auctionId);
-        }
-        if (isMounted) router.refresh();
+        await recordAuctionPresence(auctionId);
       } finally {
         isRecordingRef.current = false;
       }
     }
 
-    refreshPresence();
-    const interval = window.setInterval(refreshPresence, HEARTBEAT_INTERVAL_MS);
+    recordPresence();
+    const interval = window.setInterval(recordPresence, HEARTBEAT_INTERVAL_MS);
 
     return () => {
-      isMounted = false;
       window.clearInterval(interval);
     };
-  }, [auctionId, enabled, isParticipant, router]);
+  }, [auctionId, enabled, isParticipant]);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    router.refresh();
+    const interval = window.setInterval(() => {
+      router.refresh();
+    }, REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [enabled, router]);
 
   return null;
 }

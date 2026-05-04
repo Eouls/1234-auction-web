@@ -4,6 +4,7 @@ type DataDragonChampion = {
     full: string;
   };
   key: string;
+  localizedName?: string;
   name: string;
 };
 
@@ -15,8 +16,21 @@ type ChampionIndex = {
 let championIndexPromise: Promise<ChampionIndex | null> | null = null;
 
 export type ValidChampion = {
+  englishName: string;
+  id: string;
   imageUrl: string | null;
   name: string;
+};
+
+export type ChampionOption = {
+  englishName?: string;
+  id: string;
+  imageUrl: string | null;
+  name: string;
+};
+
+export type ChampionTextMatch = ChampionOption & {
+  matchedAlias: string;
 };
 
 export async function validateChampionCandidates(candidates: Array<{ imageUrl?: string | null; name: string }>) {
@@ -45,7 +59,9 @@ export async function validateChampionCandidates(candidates: Array<{ imageUrl?: 
     seen.add(champion.id);
 
     validChampions.push({
-      name: champion.name,
+      englishName: champion.name,
+      id: champion.id,
+      name: getDisplayChampionName(champion),
       imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
     });
   });
@@ -67,10 +83,102 @@ export async function resolveChampionIcons(championNames: Array<string | null | 
     if (!champion) return null;
 
     return {
-      name: champion.name,
+      englishName: champion.name,
+      id: champion.id,
+      name: getDisplayChampionName(champion),
       imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
     };
   });
+}
+
+export async function getChampionOptions(): Promise<ChampionOption[]> {
+  const championIndex = await getChampionIndex();
+
+  if (!championIndex) return [];
+
+  const championsById = new Map<string, DataDragonChampion>();
+  championIndex.byAlias.forEach((champion) => {
+    championsById.set(champion.id, champion);
+  });
+
+  return Array.from(championsById.values())
+    .map((champion) => ({
+      englishName: champion.name,
+      id: champion.id,
+      name: getDisplayChampionName(champion),
+      imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
+    }))
+    .sort((first, second) => first.name.localeCompare(second.name));
+}
+
+export async function resolveChampionCandidate(candidate: string): Promise<ChampionOption | null> {
+  const championIndex = await getChampionIndex();
+
+  if (!championIndex) return null;
+
+  const champion = championIndex.byAlias.get(normalizeAlias(candidate));
+  if (!champion) return null;
+
+  return {
+    englishName: champion.name,
+    id: champion.id,
+    name: getDisplayChampionName(champion),
+    imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
+  };
+}
+
+export async function findChampionInText(text: string): Promise<ChampionTextMatch | null> {
+  const championIndex = await getChampionIndex();
+
+  if (!championIndex) return null;
+
+  const normalizedText = normalizeAlias(text);
+  if (!normalizedText) return null;
+
+  const candidates = Array.from(championIndex.byAlias.entries())
+    .filter(([alias]) => alias.length >= 3 && !/^\d+$/.test(alias))
+    .sort(([firstAlias], [secondAlias]) => secondAlias.length - firstAlias.length);
+
+  for (const [alias, champion] of candidates) {
+    if (!normalizedText.includes(alias)) continue;
+
+    return {
+      englishName: champion.name,
+      id: champion.id,
+      name: getDisplayChampionName(champion),
+      imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
+      matchedAlias: alias,
+    };
+  }
+
+  return null;
+}
+
+export async function findChampionAtTextEdge(text: string): Promise<ChampionTextMatch | null> {
+  const championIndex = await getChampionIndex();
+
+  if (!championIndex) return null;
+
+  const normalizedText = normalizeAlias(text);
+  if (!normalizedText) return null;
+
+  const candidates = Array.from(championIndex.byAlias.entries())
+    .filter(([alias]) => alias.length >= 2 && !/^\d+$/.test(alias))
+    .sort(([firstAlias], [secondAlias]) => secondAlias.length - firstAlias.length);
+
+  for (const [alias, champion] of candidates) {
+    if (!normalizedText.startsWith(alias) && !normalizedText.endsWith(alias)) continue;
+
+    return {
+      englishName: champion.name,
+      id: champion.id,
+      name: getDisplayChampionName(champion),
+      imageUrl: getChampionImageUrl(championIndex.version, champion.image.full),
+      matchedAlias: alias,
+    };
+  }
+
+  return null;
 }
 
 export async function filterValidChampionNames(championNames: Array<string | null | undefined>) {
@@ -124,8 +232,14 @@ async function fetchChampionIndex(): Promise<ChampionIndex | null> {
     const byAlias = new Map<string, DataDragonChampion>();
 
     Object.values(championJson.data).forEach((champion) => {
+      const localizedChampion = koreanChampionJson?.data[champion.id];
+      const indexedChampion = {
+        ...champion,
+        localizedName: localizedChampion?.name ?? champion.name,
+      };
+
       [champion.id, champion.key, champion.name, champion.image.full.replace(/\.\w+$/, "")].forEach((alias) => {
-        byAlias.set(normalizeAlias(alias), champion);
+        byAlias.set(normalizeAlias(alias), indexedChampion);
       });
     });
 
@@ -134,7 +248,10 @@ async function fetchChampionIndex(): Promise<ChampionIndex | null> {
         const englishChampion = championJson.data[koreanChampion.id];
         if (!englishChampion) return;
 
-        byAlias.set(normalizeAlias(koreanChampion.name), englishChampion);
+        byAlias.set(normalizeAlias(koreanChampion.name), {
+          ...englishChampion,
+          localizedName: koreanChampion.name,
+        });
       });
     }
 
@@ -149,6 +266,10 @@ async function fetchChampionIndex(): Promise<ChampionIndex | null> {
 
 function getChampionImageUrl(version: string, imageFull: string) {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${imageFull}`;
+}
+
+function getDisplayChampionName(champion: DataDragonChampion) {
+  return champion.localizedName ?? champion.name;
 }
 
 function normalizeAlias(value: string) {

@@ -303,9 +303,15 @@ export async function finalizeRound(
           data: { pointsLeft: { decrement: bid.amount } },
         });
       } else {
+        const retryAuctionOrder = getNextRetryAuctionOrder(auction.participants);
         const unsoldUpdate = await tx.auctionParticipant.updateMany({
           where: { id: target.id, status: ParticipantStatus.BIDDING },
-          data: { status: ParticipantStatus.UNSOLD, teamId: null, soldPrice: null },
+          data: {
+            auctionOrder: retryAuctionOrder,
+            status: ParticipantStatus.UNSOLD,
+            teamId: null,
+            soldPrice: null,
+          },
         });
         if (unsoldUpdate.count === 0) {
           return { noop: true, reason: "ROUND_ALREADY_FINALIZED", success: "이미 처리된 라운드입니다." };
@@ -408,7 +414,7 @@ async function autoAssignRemainingParticipants(
   const openTeams = teams.filter((team) => getRemainingTeamSlots(team, participants, membersPerTeam) > 0);
   const assignableParticipants = participants.filter(
     (participant) =>
-      (participant.status === ParticipantStatus.WAITING || participant.status === ParticipantStatus.BIDDING) &&
+      isAssignableParticipantStatus(participant.status) &&
       !teams.some((team) => team.captainId === participant.userId),
   );
 
@@ -432,14 +438,35 @@ async function autoAssignRemainingParticipants(
       });
     }
 
-    const hasUnassigned = assignableParticipants.length > participantsToAssign.length;
-    return { finished: !hasUnassigned, nextTarget: null };
+    return { finished: true, nextTarget: null };
   }
 
+  const nextTarget =
+    assignableParticipants.find((participant) => participant.status === ParticipantStatus.WAITING) ??
+    assignableParticipants.find((participant) => participant.status === ParticipantStatus.UNSOLD) ??
+    null;
+
   return {
-    finished: false,
-    nextTarget: assignableParticipants.find((participant) => participant.status === ParticipantStatus.WAITING) ?? null,
+    finished: !nextTarget,
+    nextTarget,
   };
+}
+
+function getNextRetryAuctionOrder(participants: AuctionParticipantSnapshot[]) {
+  const maxAuctionOrder = participants.reduce(
+    (maxOrder, participant) => Math.max(maxOrder, participant.auctionOrder ?? 0),
+    0,
+  );
+
+  return maxAuctionOrder + 1;
+}
+
+function isAssignableParticipantStatus(status: ParticipantStatus) {
+  return (
+    status === ParticipantStatus.WAITING ||
+    status === ParticipantStatus.BIDDING ||
+    status === ParticipantStatus.UNSOLD
+  );
 }
 
 function getTeamMemberCount(team: AuctionTeamSnapshot, participants: AuctionParticipantSnapshot[]) {

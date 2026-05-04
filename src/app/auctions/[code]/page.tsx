@@ -28,7 +28,7 @@ const participantStatusLabels: Record<string, string> = {
   CAPTAIN: "팀장",
   SOLD: "낙찰됨",
   BIDDING: "경매중",
-  UNSOLD: "유찰",
+  UNSOLD: "재경매 대기",
 };
 
 const participantStatusColors: Record<string, string> = {
@@ -36,7 +36,7 @@ const participantStatusColors: Record<string, string> = {
   CAPTAIN: "border-cyan-300/40 bg-cyan-400/10 text-cyan-200",
   SOLD: "border-emerald-300/40 bg-emerald-400/10 text-emerald-200",
   BIDDING: "border-amber-300/40 bg-amber-400/10 text-amber-200",
-  UNSOLD: "border-rose-300/40 bg-rose-400/10 text-rose-200",
+  UNSOLD: "border-amber-300/40 bg-amber-400/10 text-amber-200",
 };
 
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
