@@ -36,8 +36,10 @@ export function pickPreferredRank(entries: RiotRankEntry[]) {
 
 export function pickHighestRank<T extends { rank: string | null; tier: string | null }>(entries: T[]) {
   return entries.reduce<T | null>((highestEntry, entry) => {
-    if (!entry.tier || !entry.rank) return highestEntry;
+    if (!entry.tier) return highestEntry;
+
     if (!highestEntry) return entry;
+
     return compareRank(entry, highestEntry) > 0 ? entry : highestEntry;
   }, null);
 }
@@ -49,7 +51,15 @@ function compareRank(
   const firstTierScore = tierScores[first.tier ?? "UNRANKED"] ?? 0;
   const secondTierScore = tierScores[second.tier ?? "UNRANKED"] ?? 0;
 
-  if (firstTierScore !== secondTierScore) return firstTierScore - secondTierScore;
+  if (firstTierScore !== secondTierScore) {
+    return firstTierScore - secondTierScore;
+  }
 
-  return (rankScores[first.rank ?? "IV"] ?? 0) - (rankScores[second.rank ?? "IV"] ?? 0);
+  return getRankScore(first.rank) - getRankScore(second.rank);
+}
+
+function getRankScore(rank: string | null) {
+  if (!rank) return 0;
+
+  return rankScores[rank] ?? 0;
 }
