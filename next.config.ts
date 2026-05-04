@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "6mb",
     },
   },
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+  },
   reactCompiler: true,
   serverExternalPackages: ["@sparticuz/chromium", "playwright", "playwright-core", "tesseract.js", "sharp"],
 };

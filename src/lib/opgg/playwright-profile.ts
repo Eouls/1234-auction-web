@@ -139,12 +139,19 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
 
 async function launchBrowser(): Promise<{ browser: Browser; runtime: PlaywrightRuntime }> {
   if (isVercelRuntime()) {
-    const [{ chromium: playwrightChromium }, chromiumModule] = await Promise.all([
+    const [{ chromium: playwrightChromium }, chromiumModule, { existsSync }, pathModule] = await Promise.all([
       import("playwright-core"),
       import("@sparticuz/chromium"),
+      import("node:fs"),
+      import("node:path"),
     ]);
     const chromium = chromiumModule.default;
-    const executablePath = await chromium.executablePath();
+    const binPath = pathModule.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin");
+    const hasBinPath = existsSync(binPath);
+
+    console.log("[opgg-profile] sparticuz bin path exists", { hasBinPath });
+
+    const executablePath = hasBinPath ? await chromium.executablePath(binPath) : await chromium.executablePath();
 
     console.log("[opgg-profile] chromium executable path resolved", {
       executablePath,
