@@ -25,6 +25,7 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
 
   try {
     console.log("[opgg-profile] use playwright full season lookup", { url });
+    console.log("[opgg-profile] full season lookup start", { url });
 
     const launchedBrowser = await launchBrowser();
     browser = launchedBrowser.browser;
@@ -40,10 +41,19 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
       timeout: 15_000,
       waitUntil: "domcontentloaded",
     });
+    console.log("[opgg-profile] page goto completed", { url });
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
 
-    const allSeasonsLocator = page.getByText("모든 시즌 티어 보기", { exact: true }).first();
+    const allSeasonsLocator =
+      (await page
+        .getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ })
+        .first()
+        .count()
+        .catch(() => 0)) > 0
+        ? page.getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ }).first()
+        : page.getByText(/모든\s*시즌\s*티어\s*보기/).first();
     const hasAllSeasonsButton = (await allSeasonsLocator.count().catch(() => 0)) > 0;
+    console.log("[opgg-profile] all seasons button found", hasAllSeasonsButton);
 
     if (!hasAllSeasonsButton) {
       console.warn("[opgg-profile] all seasons button not found", { url });
@@ -53,8 +63,20 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
       };
     }
 
-    await allSeasonsLocator.click({ timeout: 5_000 });
-    console.log("[opgg-profile] clicked all seasons button");
+    try {
+      await allSeasonsLocator.click({ timeout: 5_000 });
+      console.log("[opgg-profile] clicked all seasons button");
+    } catch (error) {
+      console.warn("[opgg-profile] all seasons button click failed", {
+        message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+        url,
+      });
+      return {
+        success: false,
+        warning: "전체 시즌 펼침 버튼 클릭에 실패해 기본 표시 데이터만 사용했습니다.",
+      };
+    }
+
     await page
       .waitForFunction(
         () => {
@@ -70,6 +92,7 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
     const candidates = parseSeasonTierCandidates(bodyText);
     const peak = pickHighestSeasonTier(candidates);
 
+    console.log("[opgg-profile] body text sample after click", bodyText.slice(0, 1000));
     console.log("[opgg-profile] playwright body text contains legacy seasons", {
       hasS9: bodyText.includes("S9"),
       hasDiamond3: bodyText.toLowerCase().includes("diamond 3"),
@@ -78,6 +101,11 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
       sample: bodyText.slice(0, 1000),
     });
     console.log("[opgg-profile] full season tier candidates", candidates);
+    console.log("[opgg-profile] compare peak candidates", candidates);
+    console.log("[opgg-profile] selected peak", {
+      tier: peak?.tier ?? null,
+      rank: peak?.rank ?? null,
+    });
     console.log("[opgg-profile] final full peak tier", {
       finalPeakTier: peak?.tier ?? null,
       finalPeakRank: peak?.rank ?? null,

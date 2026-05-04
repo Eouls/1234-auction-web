@@ -59,16 +59,38 @@ export async function fetchOpggProfileStats(
     const championSection = getChampionStatsSection(championsText);
     const seasonTierCandidates = parseSeasonTierCandidates(overviewText);
     const staticPeak = pickHighestRank(seasonTierCandidates);
-    const browserPeak = await fetchFullSeasonPeakTierWithBrowser({
-      gameName: normalizedGameName,
-      tagLine: normalizedTagLine,
-    });
-    const peak = browserPeak.success && browserPeak.peakTier
-      ? {
-          tier: browserPeak.peakTier,
-          rank: browserPeak.peakRank ?? null,
-        }
-      : staticPeak;
+    const fullSeasonLookupEnabled = isFullSeasonLookupEnabled();
+    console.log("[opgg-profile] ENABLE_OPGG_PLAYWRIGHT value", getSafePlaywrightEnvValue());
+    console.log("[opgg-profile] full season lookup enabled", fullSeasonLookupEnabled);
+
+    const browserPeak = fullSeasonLookupEnabled
+      ? await fetchFullSeasonPeakTierWithBrowser({
+          gameName: normalizedGameName,
+          tagLine: normalizedTagLine,
+        })
+      : {
+          success: false as const,
+          warning: "ENABLE_OPGG_PLAYWRIGHT가 false로 설정되어 전체 시즌 조회를 건너뛰었습니다.",
+        };
+
+    if (!fullSeasonLookupEnabled) {
+      console.log("[opgg-profile] full season lookup skipped reason", {
+        reason: browserPeak.warning,
+      });
+    }
+
+    const browserPeakCandidate =
+      browserPeak.success && browserPeak.peakTier
+        ? {
+            raw: "PLAYWRIGHT_FULL_SEASON",
+            tier: browserPeak.peakTier,
+            rank: browserPeak.peakRank ?? null,
+          }
+        : null;
+    const peakCandidates = [staticPeak, browserPeakCandidate].filter(
+      (candidate): candidate is SeasonTierCandidate => Boolean(candidate),
+    );
+    const peak = pickHighestRank(peakCandidates);
     const championCandidates = parseChampionCandidates(championSection);
     const { invalidCandidates, validChampions } = await validateChampionCandidates(
       championCandidates.map((name) => ({ name })),
@@ -97,6 +119,11 @@ export async function fetchOpggProfileStats(
     });
     console.log("[opgg-profile] champion section sample", championSection.slice(0, 5000));
     console.log("[opgg-profile] season tier candidates", seasonTierCandidates);
+    console.log("[opgg-profile] compare peak candidates", peakCandidates);
+    console.log("[opgg-profile] selected peak", {
+      tier: peak?.tier ?? null,
+      rank: peak?.rank ?? null,
+    });
     if (browserPeak.success) {
       console.log("[opgg-profile] browser peak tier result", {
         peakTier: browserPeak.peakTier ?? null,
@@ -143,6 +170,17 @@ export async function fetchOpggProfileStats(
     });
     return { success: false, warning: "OP.GG 페이지 요청 실패" };
   }
+}
+
+function isFullSeasonLookupEnabled() {
+  return process.env.ENABLE_OPGG_PLAYWRIGHT !== "false";
+}
+
+function getSafePlaywrightEnvValue() {
+  const value = process.env.ENABLE_OPGG_PLAYWRIGHT;
+  if (value === "true") return "true";
+  if (value === "false") return "false";
+  return "unset";
 }
 
 async function fetchOpggHtml({ label, url }: { label: "champions" | "overview"; url: string }) {

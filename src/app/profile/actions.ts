@@ -136,23 +136,35 @@ export async function refreshRiotStats({
       warning: opggUpdate.warning,
     });
     const invalidExistingChampionCleanup = await getInvalidExistingChampionCleanup(user.lolStats);
+    const userLolStatsPayload = {
+      currentTier: highestRank?.tier ?? null,
+      currentRank: highestRank?.rank ?? null,
+      ...invalidExistingChampionCleanup,
+      ...opggUpdate.data,
+      refreshedAt: new Date(),
+    };
+
+    console.log("[profile-actions] UserLolStats update payload", {
+      currentTier: userLolStatsPayload.currentTier,
+      currentRank: userLolStatsPayload.currentRank,
+      peakTier: "peakTier" in userLolStatsPayload ? userLolStatsPayload.peakTier : user.lolStats?.peakTier ?? null,
+      peakRank: "peakRank" in userLolStatsPayload ? userLolStatsPayload.peakRank : user.lolStats?.peakRank ?? null,
+      mostChampion1:
+        "mostChampion1" in userLolStatsPayload ? userLolStatsPayload.mostChampion1 : user.lolStats?.mostChampion1 ?? null,
+      mostChampion2:
+        "mostChampion2" in userLolStatsPayload ? userLolStatsPayload.mostChampion2 : user.lolStats?.mostChampion2 ?? null,
+      mostChampion3:
+        "mostChampion3" in userLolStatsPayload ? userLolStatsPayload.mostChampion3 : user.lolStats?.mostChampion3 ?? null,
+    });
 
     await prisma.userLolStats.upsert({
       where: { userId: user.id },
       create: {
         userId: user.id,
-        currentTier: highestRank?.tier ?? null,
-        currentRank: highestRank?.rank ?? null,
-        ...invalidExistingChampionCleanup,
-        ...opggUpdate.data,
-        refreshedAt: new Date(),
+        ...userLolStatsPayload,
       },
       update: {
-        currentTier: highestRank?.tier ?? null,
-        currentRank: highestRank?.rank ?? null,
-        ...invalidExistingChampionCleanup,
-        ...opggUpdate.data,
-        refreshedAt: new Date(),
+        ...userLolStatsPayload,
       },
     });
 
@@ -195,6 +207,7 @@ async function getOpggStatsUpdate({
   selectedAccount: { gameName: string; tagLine: string } | null;
 }) {
   if (!forceRefresh && isOpggCacheValid(existingStats)) {
+    console.log("[opgg-profile] using cached opgg stats");
     console.log("[opgg-profile] skip by cache", {
       refreshedAt: existingStats?.refreshedAt?.toISOString() ?? null,
       hasPeakTier: Boolean(existingStats?.peakTier),
@@ -228,6 +241,10 @@ async function getOpggStatsUpdate({
     };
   }
 
+  console.log("[opgg-profile] fetching fresh opgg stats", {
+    forceRefresh,
+    selectedAccountGameName: selectedAccount.gameName,
+  });
   const opggStats = await fetchOpggProfileStats(selectedAccount.gameName, selectedAccount.tagLine);
 
   if (!opggStats.success) {

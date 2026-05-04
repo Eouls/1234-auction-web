@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export default async function ProfilePage() {
   const supabase = await createClient();
