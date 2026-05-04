@@ -9,6 +9,8 @@ import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
 
+export const runtime = "nodejs";
+
 export default async function ProfilePage() {
   const supabase = await createClient();
   const {

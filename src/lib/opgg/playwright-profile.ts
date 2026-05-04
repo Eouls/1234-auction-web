@@ -1,10 +1,12 @@
-import type { Browser } from "playwright";
+import type { Browser } from "playwright-core";
 
 type SeasonTierCandidate = {
   rank: string | null;
   raw: string;
   tier: string | null;
 };
+
+type PlaywrightRuntime = "local-playwright" | "vercel-sparticuz";
 
 export async function fetchFullSeasonPeakTierWithBrowser(params: {
   gameName: string;
@@ -24,8 +26,10 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
   try {
     console.log("[opgg-profile] use playwright full season lookup", { url });
 
-    const { chromium } = await import("playwright");
-    browser = await chromium.launch({ headless: true });
+    const launchedBrowser = await launchBrowser();
+    browser = launchedBrowser.browser;
+    console.log(`[opgg-profile] playwright runtime: ${launchedBrowser.runtime}`);
+
     const context = await browser.newContext({
       locale: "ko-KR",
       userAgent: "1234-auction-web/1.0",
@@ -33,10 +37,10 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
     const page = await context.newPage();
 
     await page.goto(url, {
-      timeout: 30_000,
+      timeout: 15_000,
       waitUntil: "domcontentloaded",
     });
-    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
 
     const allSeasonsLocator = page.getByText("모든 시즌 티어 보기", { exact: true }).first();
     const hasAllSeasonsButton = (await allSeasonsLocator.count().catch(() => 0)) > 0;
@@ -49,7 +53,7 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
       };
     }
 
-    await allSeasonsLocator.click({ timeout: 8_000 });
+    await allSeasonsLocator.click({ timeout: 5_000 });
     console.log("[opgg-profile] clicked all seasons button");
     await page
       .waitForFunction(
@@ -103,6 +107,46 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
   } finally {
     await browser?.close().catch(() => undefined);
   }
+}
+
+async function launchBrowser(): Promise<{ browser: Browser; runtime: PlaywrightRuntime }> {
+  if (isVercelRuntime()) {
+    const [{ chromium: playwrightChromium }, chromiumModule] = await Promise.all([
+      import("playwright-core"),
+      import("@sparticuz/chromium"),
+    ]);
+    const chromium = chromiumModule.default;
+    const executablePath = await chromium.executablePath();
+
+    console.log("[opgg-profile] chromium executable path resolved", {
+      executablePath,
+      runtime: "vercel-sparticuz",
+    });
+
+    return {
+      runtime: "vercel-sparticuz",
+      browser: await playwrightChromium.launch({
+        args: chromium.args,
+        executablePath,
+        headless: true,
+      }),
+    };
+  }
+
+  const { chromium } = await import("playwright");
+  console.log("[opgg-profile] chromium executable path resolved", {
+    executablePath: "local-playwright",
+    runtime: "local-playwright",
+  });
+
+  return {
+    runtime: "local-playwright",
+    browser: await chromium.launch({ headless: true }),
+  };
+}
+
+function isVercelRuntime() {
+  return Boolean(process.env.VERCEL);
 }
 
 function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {

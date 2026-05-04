@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     },
   },
   reactCompiler: true,
-  serverExternalPackages: ["tesseract.js", "sharp"],
+  serverExternalPackages: ["@sparticuz/chromium", "playwright", "playwright-core", "tesseract.js", "sharp"],
 };
 
 export default nextConfig;
