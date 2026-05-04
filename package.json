@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "db:seed": "node --env-file-if-exists=.env --env-file-if-exists=.env.local node_modules/.bin/jiti scripts/seed.ts"
