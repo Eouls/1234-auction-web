@@ -4,6 +4,7 @@ import { AuctionChatPanel } from "@/components/auction/AuctionChatPanel";
 import { AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
 import { AuctionPresenceHeartbeat } from "@/components/auction/AuctionPresenceHeartbeat";
+import { AuctionRoomRealtime } from "@/components/auction/AuctionRoomRealtime";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Avatar,
@@ -203,6 +204,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   return (
     <AppShell contentClassName="max-w-[1720px] px-4 lg:px-6 2xl:px-8">
       <AuctionPresenceHeartbeat auctionId={auction.id} enabled={isCaptainEditable} isParticipant={isParticipant} />
+      <AuctionRoomRealtime auctionId={auction.id} />
       <PageHeader
         eyebrow={`Room ${auction.code}`}
         title={auction.title}
