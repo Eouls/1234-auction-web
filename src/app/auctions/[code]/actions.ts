@@ -209,6 +209,14 @@ export async function placeBid(
         },
         select: { id: true },
       });
+      console.log("[auction-bid] created bid", {
+        amount,
+        auctionId: auction.id,
+        bidId: bid.id,
+        bidderId: currentUser.id,
+        teamId: bidderTeam.id,
+        targetParticipantId: target.id,
+      });
 
       const nextRoundEndAt = getCappedExtendedRoundEndAt({
         auctionSeconds: auction.auctionSeconds,
@@ -227,6 +235,18 @@ export async function placeBid(
           currentBidId: bid.id,
           currentRoundEndAt: nextRoundEndAt,
         },
+      });
+      console.log("[auction-bid] updated auction", {
+        auctionId: auction.id,
+        currentBid: bid.id,
+        currentBidTeamId: bidderTeam.id,
+        currentRoundEndAt: nextRoundEndAt.toISOString(),
+        currentTargetParticipantId: target.id,
+      });
+      console.log("[auction-bid] team points unchanged on bid", {
+        auctionId: auction.id,
+        pointsLeft: bidderTeam.pointsLeft,
+        teamId: bidderTeam.id,
       });
     });
   } catch (error) {

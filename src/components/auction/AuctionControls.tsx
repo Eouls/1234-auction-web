@@ -160,8 +160,13 @@ export function BidControls({
 
   useEffect(() => {
     if (!bidState.success) return;
+    console.log("[auction-bid-client] bid action success", {
+      auctionId,
+      message: bidState.success,
+    });
+    console.log("[auction-bid-client] router.refresh called", { auctionId });
     router.refresh();
-  }, [bidState.success, router]);
+  }, [auctionId, bidState.success, router]);
 
   useEffect(() => {
     roundKeyRef.current = roundKey;
