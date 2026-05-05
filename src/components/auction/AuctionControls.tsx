@@ -94,7 +94,8 @@ export function BidControls({
   const [finalizeState, finalizeAction, isFinalizing] = useActionState(finalizeRound, initialState);
   const [isAutoFinalizing, startAutoFinalizeTransition] = useTransition();
   const [directAmount, setDirectAmount] = useState("");
-  const [remainingSeconds, setRemainingSeconds] = useState(() => getRemainingSeconds(currentRoundEndAt));
+  const [hasMounted, setHasMounted] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
@@ -104,6 +105,18 @@ export function BidControls({
   const soundRoundKeyRef = useRef("");
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setHasMounted(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted) return;
+
     const updateRemainingSeconds = () => {
       setRemainingSeconds(getRemainingSeconds(currentRoundEndAt));
     };
@@ -116,9 +129,9 @@ export function BidControls({
       window.clearTimeout(initialTimer);
       window.clearInterval(timer);
     };
-  }, [currentRoundEndAt]);
+  }, [currentRoundEndAt, hasMounted]);
 
-  const isTimeOver = remainingSeconds <= 0;
+  const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
   const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isTimeOver || isBidding;
   const directBidAmount = Number(directAmount);
   const roundKey = `${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
@@ -169,7 +182,7 @@ export function BidControls({
   }, [soundRoundKey]);
 
   useEffect(() => {
-    if (!isSoundEnabled || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+    if (!hasMounted || !isSoundEnabled || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
 
     if (remainingSeconds >= 1 && remainingSeconds <= 10) {
       const playedKey = `${soundRoundKey}:${remainingSeconds}`;
@@ -190,6 +203,7 @@ export function BidControls({
   }, [
     currentRoundEndAt,
     currentTargetParticipantId,
+    hasMounted,
     hasTarget,
     isRunning,
     isSoundEnabled,
@@ -198,7 +212,7 @@ export function BidControls({
   ]);
 
   useEffect(() => {
-    if (!isOwner || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+    if (!hasMounted || !isOwner || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
     if (remainingSeconds > 0) return;
     if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
@@ -249,6 +263,7 @@ export function BidControls({
     auctionId,
     currentTargetParticipantId,
     currentRoundEndAt,
+    hasMounted,
     hasTarget,
     isOwner,
     isRunning,
@@ -273,7 +288,7 @@ export function BidControls({
             </button>
           }
           label="남은 시간"
-          value={isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
+          value={hasMounted && isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
           strong
         />
         <Info label="현재 최고 입찰 팀" value={currentBidTeamName} strong />
