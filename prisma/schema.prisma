@@ -60,6 +60,8 @@ model User {
   captainTeams          AuctionTeam[]         @relation("TeamCaptain")
   chatMessages          ChatMessage[]
   internalMatchPlayers  InternalMatchPlayer[]
+  auctionStats          UserAuctionStats?
+  auctionSoldRecords    AuctionSoldRecord[]
 }
 
 model LolAccount {
@@ -116,22 +118,25 @@ model Auction {
   bids                       AuctionBid[]
   messages                   ChatMessage[]
   internalMatches            InternalMatch[]
+  auctionSoldRecords         AuctionSoldRecord[]
+  lastSoldUserStats          UserAuctionStats[]   @relation("LastSoldAuction")
 }
 
 model AuctionParticipant {
-  id           String            @id @default(cuid())
+  id           String              @id @default(cuid())
   auctionId    String
   userId       String
-  status       ParticipantStatus @default(WAITING)
+  status       ParticipantStatus   @default(WAITING)
   teamId       String?
   soldPrice    Int?
   auctionOrder Int?
   lastSeenAt   DateTime?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  auction      Auction           @relation(fields: [auctionId], references: [id], onDelete: Cascade)
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team         AuctionTeam?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  auction      Auction             @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         AuctionTeam?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  soldRecords  AuctionSoldRecord[]
 
   @@unique([auctionId, userId])
 }
@@ -148,6 +153,7 @@ model AuctionTeam {
   captain      User?                 @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: SetNull)
   members      AuctionParticipant[]
   matchPlayers InternalMatchPlayer[]
+  soldRecords  AuctionSoldRecord[]
 
   @@unique([auctionId, name])
 }
@@ -212,4 +218,38 @@ model InternalMatchPlayer {
   internalMatch    InternalMatch @relation(fields: [internalMatchId], references: [id], onDelete: Cascade)
   user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   auctionTeam      AuctionTeam?  @relation(fields: [auctionTeamId], references: [id], onDelete: SetNull)
+}
+
+model UserAuctionStats {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  totalSoldPrice    Int       @default(0)
+  soldCount         Int       @default(0)
+  averageSoldPrice  Float     @default(0)
+  lastSoldPrice     Int?
+  lastSoldAuctionId String?
+  lastSoldAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSoldAuction   Auction?  @relation("LastSoldAuction", fields: [lastSoldAuctionId], references: [id], onDelete: SetNull)
+}
+
+model AuctionSoldRecord {
+  id            String             @id @default(cuid())
+  auctionId     String
+  participantId String
+  userId        String
+  teamId        String
+  soldPrice     Int
+  soldAt        DateTime           @default(now())
+  createdAt     DateTime           @default(now())
+  auction       Auction            @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  participant   AuctionParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team          AuctionTeam        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([auctionId, participantId])
+  @@index([userId])
+  @@index([auctionId])
 }

@@ -335,6 +335,13 @@ export async function finalizeRound(
           status: ParticipantStatus.SOLD,
           teamId: bid.bidderTeamId,
         });
+        await recordAuctionSoldStats(tx, {
+          auctionId: auction.id,
+          participantId: target.id,
+          soldPrice: bid.amount,
+          teamId: bid.bidderTeamId,
+          userId: target.userId,
+        });
 
         const updatedTeam = await tx.auctionTeam.update({
           where: { id: bid.bidderTeamId },
@@ -532,6 +539,116 @@ async function autoAssignRemainingParticipants(
     finished: !nextTarget,
     nextTarget,
   };
+}
+
+async function recordAuctionSoldStats(
+  tx: Prisma.TransactionClient,
+  {
+    auctionId,
+    participantId,
+    soldPrice,
+    teamId,
+    userId,
+  }: {
+    auctionId: string;
+    participantId: string;
+    soldPrice: number;
+    teamId: string;
+    userId: string;
+  },
+) {
+  const soldAt = new Date();
+
+  try {
+    await tx.auctionSoldRecord.create({
+      data: {
+        auctionId,
+        participantId,
+        soldAt,
+        soldPrice,
+        teamId,
+        userId,
+      },
+    });
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      console.log("[auction-stats] sold record already exists, skip stats update", {
+        auctionId,
+        participantId,
+        userId,
+      });
+      return;
+    }
+
+    throw error;
+  }
+
+  console.log("[auction-stats] sold record created", {
+    auctionId,
+    participantId,
+    soldPrice,
+    teamId,
+    userId,
+  });
+
+  const currentStats = await tx.userAuctionStats.findUnique({
+    where: { userId },
+  });
+
+  if (!currentStats) {
+    const createdStats = await tx.userAuctionStats.create({
+      data: {
+        averageSoldPrice: soldPrice,
+        lastSoldAt: soldAt,
+        lastSoldAuctionId: auctionId,
+        lastSoldPrice: soldPrice,
+        soldCount: 1,
+        totalSoldPrice: soldPrice,
+        userId,
+      },
+    });
+
+    console.log("[auction-stats] user auction stats updated", {
+      averageSoldPrice: createdStats.averageSoldPrice,
+      lastSoldPrice: createdStats.lastSoldPrice,
+      soldCount: createdStats.soldCount,
+      totalSoldPrice: createdStats.totalSoldPrice,
+      userId,
+    });
+    return;
+  }
+
+  const nextSoldCount = currentStats.soldCount + 1;
+  const nextTotalSoldPrice = currentStats.totalSoldPrice + soldPrice;
+  const nextAverageSoldPrice = nextTotalSoldPrice / nextSoldCount;
+  const updatedStats = await tx.userAuctionStats.update({
+    where: { userId },
+    data: {
+      averageSoldPrice: nextAverageSoldPrice,
+      lastSoldAt: soldAt,
+      lastSoldAuctionId: auctionId,
+      lastSoldPrice: soldPrice,
+      soldCount: nextSoldCount,
+      totalSoldPrice: nextTotalSoldPrice,
+    },
+  });
+
+  console.log("[auction-stats] user auction stats updated", {
+    averageSoldPrice: updatedStats.averageSoldPrice,
+    lastSoldPrice: updatedStats.lastSoldPrice,
+    soldCount: updatedStats.soldCount,
+    totalSoldPrice: updatedStats.totalSoldPrice,
+    userId,
+  });
+}
+
+function isPrismaUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 function getNextRetryAuctionOrder(participants: AuctionParticipantSnapshot[]) {
