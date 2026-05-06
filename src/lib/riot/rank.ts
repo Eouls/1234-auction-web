@@ -27,11 +27,7 @@ const rankScores: Record<string, number> = {
 };
 
 export function pickPreferredRank(entries: RiotRankEntry[]) {
-  return (
-    entries.find((entry) => entry.queueType === "RANKED_SOLO_5x5") ??
-    entries.find((entry) => entry.queueType === "RANKED_FLEX_SR") ??
-    null
-  );
+  return entries.find((entry) => entry.queueType === "RANKED_SOLO_5x5") ?? null;
 }
 
 export function pickHighestRank<T extends { rank: string | null; tier: string | null }>(entries: T[]) {

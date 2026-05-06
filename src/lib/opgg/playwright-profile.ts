@@ -130,10 +130,19 @@ async function runFullSeasonLookupAttempt({
         .catch(() => undefined);
 
       const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
-      const candidates = parseSeasonTierCandidates(bodyText);
+      const soloRankTierSection = getSoloRankTierSection(bodyText);
+      const candidates = parseSeasonTierCandidates(soloRankTierSection.text);
       const peak = pickHighestSeasonTier(candidates);
 
       console.log("[opgg-profile] body text sample after click", bodyText.slice(0, 1000));
+      console.log("[opgg-profile] solo rank section found", {
+        found: soloRankTierSection.found,
+        length: soloRankTierSection.text.length,
+        sample: soloRankTierSection.text.slice(0, 1000),
+      });
+      console.log("[opgg-profile] flex rank section ignored", {
+        found: soloRankTierSection.flexFound,
+      });
       console.log("[opgg-profile] playwright body text contains legacy seasons", {
         hasS9: bodyText.includes("S9"),
         hasDiamond3: bodyText.toLowerCase().includes("diamond 3"),
@@ -142,8 +151,13 @@ async function runFullSeasonLookupAttempt({
         sample: bodyText.slice(0, 1000),
       });
       console.log("[opgg-profile] full season tier candidates", candidates);
+      console.log("[opgg-profile] solo queue peak candidates", candidates);
       console.log("[opgg-profile] compare peak candidates", candidates);
       console.log("[opgg-profile] selected peak", {
+        tier: peak?.tier ?? null,
+        rank: peak?.rank ?? null,
+      });
+      console.log("[opgg-profile] selected solo queue peak tier", {
         tier: peak?.tier ?? null,
         rank: peak?.rank ?? null,
       });
@@ -303,6 +317,48 @@ function isRetryablePlaywrightWarning(warning?: string) {
 
 function isResourceFailureMessage(message: string) {
   return message.includes("ERR_INSUFFICIENT_RESOURCES") || message.includes("Insufficient resources");
+}
+
+function getSoloRankTierSection(text: string) {
+  const soloStartIndex = findFirstMarkerIndex(text, [
+    "개인/2인 랭크 게임",
+    "개인/2인 랭크",
+    "솔로/듀오",
+    "솔로 랭크",
+    "솔로랭크",
+    "Solo/Duo",
+    "Ranked Solo/Duo",
+  ]);
+  const flexStartIndex = findFirstMarkerIndex(text, ["자유 랭크 게임", "자유 랭크", "Ranked Flex"], {
+    fromIndex: soloStartIndex >= 0 ? soloStartIndex : 0,
+  });
+
+  if (soloStartIndex < 0) {
+    return {
+      found: false,
+      flexFound: flexStartIndex >= 0,
+      text: "",
+    };
+  }
+
+  const endIndex = flexStartIndex > soloStartIndex ? flexStartIndex : soloStartIndex + 20_000;
+
+  return {
+    found: true,
+    flexFound: flexStartIndex > soloStartIndex,
+    text: text.slice(soloStartIndex, endIndex),
+  };
+}
+
+function findFirstMarkerIndex(
+  text: string,
+  markers: string[],
+  { fromIndex = 0 }: { fromIndex?: number } = {},
+) {
+  return markers
+    .map((marker) => text.indexOf(marker, fromIndex))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0] ?? -1;
 }
 
 function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {

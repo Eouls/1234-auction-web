@@ -22,6 +22,7 @@ type RiotLeagueEntryDto = RiotRankEntry & {
 };
 
 export type RiotAccountRankResult = {
+  ignoredFlexRank: { rank: string | null; tier: string | null } | null;
   puuid: string;
   rank: string | null;
   tier: string | null;
@@ -52,8 +53,15 @@ export async function fetchRiotAccountRank({
   const summoner = await getSummonerByPuuid(account.puuid);
   const entries = await getLeagueEntries(account.puuid, summoner.id);
   const preferredEntry = pickPreferredRank(entries);
+  const ignoredFlexEntry = entries.find((entry) => entry.queueType === "RANKED_FLEX_SR") ?? null;
 
   return {
+    ignoredFlexRank: ignoredFlexEntry
+      ? {
+          tier: ignoredFlexEntry.tier ?? null,
+          rank: ignoredFlexEntry.rank ?? null,
+        }
+      : null,
     puuid: account.puuid,
     tier: preferredEntry?.tier ?? null,
     rank: preferredEntry?.rank ?? null,

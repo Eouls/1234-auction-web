@@ -102,6 +102,18 @@ export async function refreshRiotStats({
         };
         rankResults.push(accountRank);
 
+        console.log("[profile-actions] solo queue rank result", {
+          account: formatRiotAccountLabel(account),
+          tier: accountRank.tier,
+          rank: accountRank.rank,
+        });
+        if (result.ignoredFlexRank) {
+          console.log("[profile-actions] flex queue ignored", {
+            account: formatRiotAccountLabel(account),
+            tier: result.ignoredFlexRank.tier,
+            rank: result.ignoredFlexRank.rank,
+          });
+        }
         console.log("[profile-actions] account current rank result", {
           account: formatRiotAccountLabel(account),
           tier: accountRank.tier,
@@ -321,6 +333,11 @@ async function getOpggStatsUpdate({
 
   const highestPeak = pickHighestRank(peakCandidates);
   console.log("[profile-actions] selected highest peak rank", {
+    sourceAccount: highestPeak ? formatRiotAccountLabel(highestPeak) : null,
+    tier: highestPeak?.tier ?? null,
+    rank: highestPeak?.rank ?? null,
+  });
+  console.log("[opgg-profile] selected solo queue peak tier", {
     sourceAccount: highestPeak ? formatRiotAccountLabel(highestPeak) : null,
     tier: highestPeak?.tier ?? null,
     rank: highestPeak?.rank ?? null,
