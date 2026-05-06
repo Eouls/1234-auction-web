@@ -49,7 +49,7 @@ export function OnboardingForm() {
           <SectionTitle title="기본 정보" />
           <label className="text-sm font-semibold text-slate-300">
             닉네임
-            <Input className="mt-2" maxLength={20} minLength={2} name="nickname" placeholder="예: 청월" />
+            <Input className="mt-2" maxLength={20} minLength={2} name="nickname" placeholder="예: 기찬" />
           </label>
           {state.fieldErrors?.nickname ? (
             <p className="mt-2 text-xs text-rose-300">{state.fieldErrors.nickname}</p>
@@ -68,13 +68,13 @@ export function OnboardingForm() {
                 <Input
                   name="gameName"
                   onChange={(event) => updateAccount(account.id, "gameName", event.target.value)}
-                  placeholder="gameName 예: 울트라맨"
+                  placeholder="예: 울트라맨"
                   value={account.gameName}
                 />
                 <Input
                   name="tagLine"
                   onChange={(event) => updateAccount(account.id, "tagLine", event.target.value)}
-                  placeholder="tagLine 예: KR1"
+                  placeholder="예: KR1"
                   value={account.tagLine}
                 />
                 <Button

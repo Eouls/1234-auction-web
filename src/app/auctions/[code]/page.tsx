@@ -101,6 +101,13 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
               lolStats: true,
+              auctionStats: {
+                select: {
+                  averageSoldPrice: true,
+                  lastSoldPrice: true,
+                  soldCount: true,
+                },
+              },
             },
           },
         },
@@ -356,6 +363,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
                         )} / ${formatTier(currentTarget.lolStats?.peakTier, currentTarget.lolStats?.peakRank)}`}
                       />
                     </div>
+                    <AuctionSoldStatsSummary stats={currentTarget.auctionStats} />
                     <div className="mt-4 flex gap-2">
                       {[
                         currentTargetChampions[0],
@@ -563,6 +571,42 @@ function Info({ label, value, strong = false }: { label: string; value: string; 
       </p>
     </div>
   );
+}
+
+function AuctionSoldStatsSummary({
+  stats,
+}: {
+  stats: {
+    averageSoldPrice: number;
+    lastSoldPrice: number | null;
+    soldCount: number;
+  } | null;
+}) {
+  if (!stats || stats.soldCount <= 0) {
+    return (
+      <div className="mt-4 rounded-md border border-white/10 bg-slate-950/40 px-3 py-2">
+        <p className="text-xs font-semibold text-slate-500">낙찰 기록 없음</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <div className="rounded-md border border-white/10 bg-slate-950/40 p-3">
+        <p className="text-xs text-slate-500">직전 낙찰가</p>
+        <p className="mt-1 text-sm font-black text-slate-100">{formatPoint(stats.lastSoldPrice)}</p>
+      </div>
+      <div className="rounded-md border border-white/10 bg-slate-950/40 p-3">
+        <p className="text-xs text-slate-500">평균 낙찰가</p>
+        <p className="mt-1 text-sm font-black text-slate-100">{formatPoint(Math.round(stats.averageSoldPrice))}</p>
+        <p className="mt-0.5 text-[11px] text-slate-500">{stats.soldCount.toLocaleString()}회 기준</p>
+      </div>
+    </div>
+  );
+}
+
+function formatPoint(value?: number | null) {
+  return typeof value === "number" ? `${value.toLocaleString()}P` : "기록 없음";
 }
 
 function formatTier(tier?: string | null, rank?: string | null) {
