@@ -22,7 +22,10 @@ export function AuctionRoomRealtime({ auctionId }: AuctionRoomRealtimeProps) {
     const supabase = createClient();
 
     function scheduleRefresh(reason: string) {
-      if (refreshTimeoutRef.current !== null) return;
+      if (refreshTimeoutRef.current !== null) {
+        console.log("[auction-realtime] refresh already scheduled", { auctionId, reason });
+        return;
+      }
 
       console.log("[auction-realtime] refresh scheduled", { auctionId, reason });
 
@@ -72,8 +75,8 @@ export function AuctionRoomRealtime({ auctionId }: AuctionRoomRealtimeProps) {
             table: "AuctionBid",
           },
           (payload) => {
-            const payloadAuctionId = getPayloadAuctionId(payload, "AuctionBid");
-            const auctionIdMatches = payloadAuctionId === auctionId;
+            const matchedAuctionId = getPayloadAuctionId(payload, "AuctionBid");
+            const auctionIdMatches = matchedAuctionId === auctionId;
             console.log("[auction-realtime] AuctionBid INSERT received", {
               auctionIdMatches,
               currentAuctionId: auctionId,
@@ -81,7 +84,7 @@ export function AuctionRoomRealtime({ auctionId }: AuctionRoomRealtimeProps) {
               newAuctionId: payload.new?.auctionId ?? null,
               newAuction_id: payload.new?.auction_id ?? null,
               newKeys: Object.keys(payload.new ?? {}),
-              payloadAuctionId,
+              matchedAuctionId,
               payloadNew: payload.new,
               schema: payload.schema,
               table: payload.table,
@@ -164,19 +167,33 @@ function handleRealtimePayload(
   auctionId: string,
   scheduleRefresh: (reason: string) => void,
 ) {
-  const payloadAuctionId = getPayloadAuctionId(payload, payload.table);
-  const oldAuctionId = getPayloadAuctionId({ ...payload, new: {}, old: payload.old }, payload.table);
-  const auctionIdMatches = payloadAuctionId === auctionId || oldAuctionId === auctionId;
+  const matchedAuctionId = getPayloadAuctionId(payload, payload.table);
+  const auctionIdMatches = matchedAuctionId === auctionId;
 
   console.log("[auction-realtime] event received", {
+    auctionIdMatches,
     currentAuctionId: auctionId,
     eventType: payload.eventType,
-    newAuctionId: payloadAuctionId,
+    matchedAuctionId,
     newKeys: Object.keys(payload.new ?? {}),
-    oldAuctionId,
     oldKeys: Object.keys(payload.old ?? {}),
     table: payload.table,
   });
+
+  if (payload.table === "Auction" && payload.eventType === "UPDATE") {
+    console.log("[auction-realtime] Auction UPDATE received", {
+      auctionIdMatches,
+      currentAuctionId: auctionId,
+      newCurrentBidId: payload.new?.currentBidId ?? null,
+      newCurrentRoundEndAt: payload.new?.currentRoundEndAt ?? null,
+      newCurrentTargetParticipantId: payload.new?.currentTargetParticipantId ?? null,
+      newId: payload.new?.id ?? null,
+      oldCurrentBidId: payload.old?.currentBidId ?? null,
+      oldCurrentRoundEndAt: payload.old?.currentRoundEndAt ?? null,
+      oldCurrentTargetParticipantId: payload.old?.currentTargetParticipantId ?? null,
+      oldId: payload.old?.id ?? null,
+    });
+  }
 
   if (auctionIdMatches) {
     scheduleRefresh(`${payload.table} ${payload.eventType}`);
@@ -185,16 +202,28 @@ function handleRealtimePayload(
 
 function getPayloadAuctionId(payload: { new: Record<string, unknown>; old: Record<string, unknown> }, table: string) {
   if (table === "Auction") {
-    const newId = payload.new.id;
-    if (typeof newId === "string") return newId;
-
-    const oldId = payload.old.id;
-    return typeof oldId === "string" ? oldId : null;
+    return getFirstStringValue(
+      payload.new.id,
+      payload.old.id,
+      payload.new.auctionId,
+      payload.old.auctionId,
+      payload.new.auction_id,
+      payload.old.auction_id,
+    );
   }
 
-  const newAuctionId = payload.new.auctionId ?? payload.new.auction_id;
-  if (typeof newAuctionId === "string") return newAuctionId;
+  return getFirstStringValue(
+    payload.new.auctionId,
+    payload.old.auctionId,
+    payload.new.auction_id,
+    payload.old.auction_id,
+  );
+}
 
-  const oldAuctionId = payload.old.auctionId ?? payload.old.auction_id;
-  return typeof oldAuctionId === "string" ? oldAuctionId : null;
+function getFirstStringValue(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string") return value;
+  }
+
+  return null;
 }

@@ -318,9 +318,21 @@ export async function finalizeRound(
         if (soldUpdate.count === 0) {
           return { noop: true, reason: "ROUND_ALREADY_FINALIZED", success: "이미 처리된 라운드입니다." };
         }
-        await tx.auctionTeam.update({
+        console.log("[auction-finalize] updated participant", {
+          auctionId: auction.id,
+          participantId: target.id,
+          status: ParticipantStatus.SOLD,
+          teamId: bid.bidderTeamId,
+        });
+
+        const updatedTeam = await tx.auctionTeam.update({
           where: { id: bid.bidderTeamId },
           data: { pointsLeft: { decrement: bid.amount } },
+        });
+        console.log("[auction-finalize] updated team", {
+          auctionId: auction.id,
+          pointsLeft: updatedTeam.pointsLeft,
+          teamId: updatedTeam.id,
         });
       } else {
         const retryAuctionOrder = getNextRetryAuctionOrder(auction.participants);
@@ -336,6 +348,12 @@ export async function finalizeRound(
         if (unsoldUpdate.count === 0) {
           return { noop: true, reason: "ROUND_ALREADY_FINALIZED", success: "이미 처리된 라운드입니다." };
         }
+        console.log("[auction-finalize] updated participant", {
+          auctionId: auction.id,
+          auctionOrder: retryAuctionOrder,
+          participantId: target.id,
+          status: ParticipantStatus.UNSOLD,
+        });
       }
 
       const autoAssignResult = await autoAssignRemainingParticipants(tx, {
@@ -344,7 +362,7 @@ export async function finalizeRound(
       });
 
       if (autoAssignResult.finished) {
-        await tx.auction.update({
+        const updatedAuction = await tx.auction.update({
           where: { id: auction.id },
           data: {
             status: AuctionStatus.FINISHED,
@@ -352,6 +370,13 @@ export async function finalizeRound(
             currentBidId: null,
             currentRoundEndAt: null,
           },
+        });
+        console.log("[auction-finalize] updated auction", {
+          auctionId: updatedAuction.id,
+          currentBidId: updatedAuction.currentBidId,
+          currentRoundEndAt: updatedAuction.currentRoundEndAt?.toISOString() ?? null,
+          currentTargetParticipantId: updatedAuction.currentTargetParticipantId,
+          status: updatedAuction.status,
         });
         return { success: "라운드를 종료했습니다." };
       }
@@ -359,11 +384,17 @@ export async function finalizeRound(
       const nextTarget = autoAssignResult.nextTarget;
 
       if (nextTarget) {
-        await tx.auctionParticipant.update({
+        const updatedNextTarget = await tx.auctionParticipant.update({
           where: { id: nextTarget.id },
           data: { status: ParticipantStatus.BIDDING },
         });
-        await tx.auction.update({
+        console.log("[auction-finalize] updated participant", {
+          auctionId: auction.id,
+          participantId: updatedNextTarget.id,
+          status: updatedNextTarget.status,
+        });
+
+        const updatedAuction = await tx.auction.update({
           where: { id: auction.id },
           data: {
             currentTargetParticipantId: nextTarget.id,
@@ -371,8 +402,15 @@ export async function finalizeRound(
             currentRoundEndAt: new Date(Date.now() + auction.auctionSeconds * 1000),
           },
         });
+        console.log("[auction-finalize] updated auction", {
+          auctionId: updatedAuction.id,
+          currentBidId: updatedAuction.currentBidId,
+          currentRoundEndAt: updatedAuction.currentRoundEndAt?.toISOString() ?? null,
+          currentTargetParticipantId: updatedAuction.currentTargetParticipantId,
+          status: updatedAuction.status,
+        });
       } else {
-        await tx.auction.update({
+        const updatedAuction = await tx.auction.update({
           where: { id: auction.id },
           data: {
             status: AuctionStatus.FINISHED,
@@ -380,6 +418,13 @@ export async function finalizeRound(
             currentBidId: null,
             currentRoundEndAt: null,
           },
+        });
+        console.log("[auction-finalize] updated auction", {
+          auctionId: updatedAuction.id,
+          currentBidId: updatedAuction.currentBidId,
+          currentRoundEndAt: updatedAuction.currentRoundEndAt?.toISOString() ?? null,
+          currentTargetParticipantId: updatedAuction.currentTargetParticipantId,
+          status: updatedAuction.status,
         });
       }
 
@@ -455,6 +500,12 @@ async function autoAssignRemainingParticipants(
           teamId: targetTeam.id,
           soldPrice: 0,
         },
+      });
+      console.log("[auction-finalize] updated participant", {
+        auctionId,
+        participantIds: participantsToAssign.map((participant) => participant.id),
+        status: ParticipantStatus.SOLD,
+        teamId: targetTeam.id,
       });
     }
 

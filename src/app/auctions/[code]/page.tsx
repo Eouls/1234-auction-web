@@ -125,6 +125,14 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
     notFound();
   }
 
+  console.log("[auction-page] loaded auction", {
+    auctionId: auction.id,
+    currentBidId: auction.currentBidId,
+    currentRoundEndAt: auction.currentRoundEndAt?.toISOString() ?? null,
+    currentTargetParticipantId: auction.currentTargetParticipantId,
+    status: auction.status,
+  });
+
   const isOwner = auction.ownerId === currentUser.id;
   const currentParticipant = auction.participants.find(
     (participant) => participant.userId === currentUser.id,
