@@ -281,8 +281,13 @@ async function getOpggStatsUpdate({
 
   const peakCandidates: Array<{ gameName: string; rank: string | null; tagLine: string; tier: string | null }> = [];
   const warnings: string[] = [];
-  let firstMostChampions: Extract<OpggProfileStatsResult, { success: true }>["mostChampions"] = [];
+  const aggregatedMostChampionMap = new Map<
+    string,
+    Extract<OpggProfileStatsResult, { success: true }>["mostChampions"][number] & { firstSeenIndex: number }
+  >();
   let successCount = 0;
+  let mostChampionSuccessCount = 0;
+  let mostChampionSeenIndex = 0;
 
   console.log("[opgg-profile] fetching fresh opgg stats", {
     accountCount: accounts.length,
@@ -314,14 +319,38 @@ async function getOpggStatsUpdate({
       });
     }
 
-    if (!firstMostChampions.length && opggStats.mostChampions.length) {
-      firstMostChampions = opggStats.mostChampions;
+    if (opggStats.mostChampions.length) {
+      mostChampionSuccessCount += 1;
+
+      for (const champion of opggStats.mostChampions) {
+        const key = champion.name.toLowerCase();
+        const existingChampion = aggregatedMostChampionMap.get(key);
+
+        if (existingChampion) {
+          existingChampion.games += champion.games;
+          continue;
+        }
+
+        aggregatedMostChampionMap.set(key, {
+          ...champion,
+          firstSeenIndex: mostChampionSeenIndex,
+        });
+        mostChampionSeenIndex += 1;
+      }
     }
 
     if (opggStats.warnings.length) {
       warnings.push(`${account.gameName} #${account.tagLine}: ${opggStats.warnings.join(" / ")}`);
     }
 
+    console.log("[profile-actions] account most champions result", {
+      account: accountLabel,
+      championCount: opggStats.mostChampions.length,
+      champions: opggStats.mostChampions.map((champion) => ({
+        name: champion.name,
+        games: champion.games,
+      })),
+    });
     console.log("[profile-actions] account peak rank result", {
       account: accountLabel,
       success: true,
@@ -342,6 +371,33 @@ async function getOpggStatsUpdate({
     tier: highestPeak?.tier ?? null,
     rank: highestPeak?.rank ?? null,
   });
+  const aggregatedMostChampions = Array.from(aggregatedMostChampionMap.values())
+    .sort(
+      (first, second) =>
+        second.games - first.games ||
+        first.name.localeCompare(second.name) ||
+        first.firstSeenIndex - second.firstSeenIndex,
+    )
+    .slice(0, 3);
+
+  console.log("[profile-actions] aggregated most champions", {
+    totalAccounts: accounts.length,
+    successfulAccounts: mostChampionSuccessCount,
+    champions: Array.from(aggregatedMostChampionMap.values())
+      .sort(
+        (first, second) =>
+          second.games - first.games ||
+          first.name.localeCompare(second.name) ||
+          first.firstSeenIndex - second.firstSeenIndex,
+      )
+      .map((champion) => ({ name: champion.name, games: champion.games }))
+      .slice(0, 20),
+  });
+  console.log("[profile-actions] selected aggregated most champions", {
+    mostChampion1: aggregatedMostChampions[0]?.name ?? null,
+    mostChampion2: aggregatedMostChampions[1]?.name ?? null,
+    mostChampion3: aggregatedMostChampions[2]?.name ?? null,
+  });
 
   if (!successCount) {
     return {
@@ -360,14 +416,14 @@ async function getOpggStatsUpdate({
             peakRank: highestPeak.rank,
           }
         : {}),
-      ...(firstMostChampions.length
+      ...(aggregatedMostChampions.length
         ? {
-            mostChampion1: firstMostChampions[0]?.name ?? null,
-            mostChampion2: firstMostChampions[1]?.name ?? null,
-            mostChampion3: firstMostChampions[2]?.name ?? null,
-            mostChampion1ImageUrl: firstMostChampions[0]?.imageUrl ?? null,
-            mostChampion2ImageUrl: firstMostChampions[1]?.imageUrl ?? null,
-            mostChampion3ImageUrl: firstMostChampions[2]?.imageUrl ?? null,
+            mostChampion1: aggregatedMostChampions[0]?.name ?? null,
+            mostChampion2: aggregatedMostChampions[1]?.name ?? null,
+            mostChampion3: aggregatedMostChampions[2]?.name ?? null,
+            mostChampion1ImageUrl: aggregatedMostChampions[0]?.imageUrl ?? null,
+            mostChampion2ImageUrl: aggregatedMostChampions[1]?.imageUrl ?? null,
+            mostChampion3ImageUrl: aggregatedMostChampions[2]?.imageUrl ?? null,
           }
         : {}),
     },

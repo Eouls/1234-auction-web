@@ -1,10 +1,10 @@
 import { fetchFullSeasonPeakTierWithBrowser } from "@/lib/opgg/playwright-profile";
-import { validateChampionCandidates } from "@/lib/riot/champions";
+import { resolveChampionCandidate } from "@/lib/riot/champions";
 import { pickHighestRank } from "@/lib/riot/rank";
 
 export type OpggProfileStatsResult =
   | {
-      mostChampions: Array<{ imageUrl: string | null; name: string }>;
+      mostChampions: Array<{ games: number; imageUrl: string | null; name: string }>;
       peakRank: string | null;
       peakTier: string | null;
       source: "OP.GG";
@@ -20,6 +20,12 @@ type SeasonTierCandidate = {
   rank: string | null;
   raw: string;
   tier: string | null;
+};
+
+type ParsedChampionCandidate = {
+  games: number;
+  nameCandidates: string[];
+  rawName: string;
 };
 
 const opggSummonerBaseUrl = "https://op.gg/ko/lol/summoners/kr";
@@ -93,9 +99,7 @@ export async function fetchOpggProfileStats(
     );
     const peak = pickHighestRank(peakCandidates);
     const championCandidates = parseChampionCandidates(championSection);
-    const { invalidCandidates, validChampions } = await validateChampionCandidates(
-      championCandidates.map((name) => ({ name })),
-    );
+    const { invalidCandidates, validChampions } = await resolveMostChampionCandidates(championCandidates);
     const finalMostChampions = validChampions.slice(0, 3);
     const warnings = [];
 
@@ -159,15 +163,22 @@ export async function fetchOpggProfileStats(
         fallbackPeakRank: staticPeak?.rank ?? null,
       });
     }
-    console.log("[opgg-profile] champion candidates", championCandidates);
+    console.log(
+      "[opgg-profile] champion candidates",
+      championCandidates.map((candidate) => ({
+        rawName: candidate.rawName,
+        games: candidate.games,
+        nameCandidates: candidate.nameCandidates.slice(0, 4),
+      })),
+    );
     console.log(
       "[opgg-profile] valid champion candidates",
-      validChampions.map((champion) => champion.name),
+      validChampions.map((champion) => ({ name: champion.name, games: champion.games })),
     );
     console.log("[opgg-profile] final OP.GG parse result", {
       finalPeakTier: peak?.tier ?? null,
       finalPeakRank: peak?.rank ?? null,
-      finalMostChampions: finalMostChampions.map((champion) => champion.name),
+      finalMostChampions: finalMostChampions.map((champion) => ({ name: champion.name, games: champion.games })),
     });
 
     if (!peak?.tier && !finalMostChampions.length) {
@@ -277,27 +288,88 @@ function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {
   return candidates;
 }
 
-function parseChampionCandidates(text: string) {
+function parseChampionCandidates(text: string): ParsedChampionCandidate[] {
   const limitedSection = text.slice(0, 6000);
   const rankedChampionRegex = /(?:^|\s)([1-9]|1\d|20)\s+([가-힣A-Za-z][가-힣A-Za-z.'’\-\s]{1,40}?)(?=\s+(?:[1-9]|1\d|20)\s+|\s+\d+(?:\.\d+)?%|\s+\d+\s*(?:게임|승|패)|$)/g;
-  const candidates: string[] = [];
+  const matches = Array.from(limitedSection.matchAll(rankedChampionRegex));
+  const candidates: ParsedChampionCandidate[] = [];
   const seen = new Set<string>();
 
-  for (const match of limitedSection.matchAll(rankedChampionRegex)) {
+  matches.forEach((match, index) => {
     const rawName = cleanupChampionCandidate(match[2] ?? "");
     const nameCandidates = expandChampionNameCandidates(rawName);
-
-    for (const name of nameCandidates) {
+    const nextMatchIndex = matches[index + 1]?.index ?? Math.min(limitedSection.length, (match.index ?? 0) + 500);
+    const rowText = limitedSection.slice(match.index ?? 0, nextMatchIndex);
+    const games = extractChampionGames(rowText);
+    const uniqueNameCandidates = nameCandidates.filter((name) => {
       const key = name.toLowerCase();
-      if (seen.has(key)) continue;
+      if (seen.has(key)) return false;
       seen.add(key);
-      candidates.push(name);
-    }
+      return true;
+    });
 
-    if (candidates.length >= 60) break;
-  }
+    if (uniqueNameCandidates.length) {
+      candidates.push({
+        rawName,
+        nameCandidates: uniqueNameCandidates,
+        games,
+      });
+    }
+  });
 
   return candidates;
+}
+
+async function resolveMostChampionCandidates(candidates: ParsedChampionCandidate[]) {
+  const invalidCandidates: string[] = [];
+  const validChampionMap = new Map<
+    string,
+    { firstIndex: number; games: number; imageUrl: string | null; name: string }
+  >();
+
+  for (const [index, candidate] of candidates.entries()) {
+    let resolvedChampion: Awaited<ReturnType<typeof resolveChampionCandidate>> = null;
+
+    for (const nameCandidate of candidate.nameCandidates) {
+      resolvedChampion = await resolveChampionCandidate(nameCandidate);
+      if (resolvedChampion) break;
+    }
+
+    if (!resolvedChampion) {
+      invalidCandidates.push(candidate.rawName);
+      continue;
+    }
+
+    const existingChampion = validChampionMap.get(resolvedChampion.id);
+    if (existingChampion) {
+      existingChampion.games += candidate.games;
+      continue;
+    }
+
+    validChampionMap.set(resolvedChampion.id, {
+      firstIndex: index,
+      games: candidate.games,
+      imageUrl: resolvedChampion.imageUrl,
+      name: resolvedChampion.name,
+    });
+  }
+
+  const validChampions = Array.from(validChampionMap.values())
+    .sort((first, second) => second.games - first.games || first.firstIndex - second.firstIndex)
+    .map((champion) => ({
+      games: champion.games,
+      imageUrl: champion.imageUrl,
+      name: champion.name,
+    }));
+
+  return { validChampions, invalidCandidates };
+}
+
+function extractChampionGames(text: string) {
+  const gamesMatch = /(\d+)\s*(?:게임|games?|판)\b/i.exec(text);
+  if (!gamesMatch?.[1]) return 0;
+
+  return Number.parseInt(gamesMatch[1], 10) || 0;
 }
 
 function getPeakTierSection(text: string) {
