@@ -24,6 +24,9 @@ type AuctionRoomPageProps = {
   params: Promise<{ code: string }>;
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const participantStatusLabels: Record<string, string> = {
   WAITING: "대기",
   CAPTAIN: "팀장",

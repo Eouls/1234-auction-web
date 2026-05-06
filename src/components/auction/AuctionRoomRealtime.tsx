@@ -73,19 +73,21 @@ export function AuctionRoomRealtime({ auctionId }: AuctionRoomRealtimeProps) {
           },
           (payload) => {
             const payloadAuctionId = getPayloadAuctionId(payload, "AuctionBid");
+            const auctionIdMatches = payloadAuctionId === auctionId;
             console.log("[auction-realtime] AuctionBid INSERT received", {
+              auctionIdMatches,
               currentAuctionId: auctionId,
               eventType: payload.eventType,
               newAuctionId: payload.new?.auctionId ?? null,
               newAuction_id: payload.new?.auction_id ?? null,
               newKeys: Object.keys(payload.new ?? {}),
+              payloadAuctionId,
+              payloadNew: payload.new,
               schema: payload.schema,
               table: payload.table,
             });
 
-            if (payloadAuctionId === auctionId) {
-              scheduleRefresh("AuctionBid INSERT");
-            }
+            scheduleRefresh("AuctionBid INSERT unfiltered debug");
           },
         )
         .on(
