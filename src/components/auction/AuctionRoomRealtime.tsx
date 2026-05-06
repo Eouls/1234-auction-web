@@ -156,6 +156,7 @@ export function AuctionRoomRealtime({ auctionId }: AuctionRoomRealtimeProps) {
 
 type RealtimePayload = {
   eventType: string;
+  errors?: unknown;
   new: Record<string, unknown>;
   old: Record<string, unknown>;
   schema: string;
@@ -177,6 +178,7 @@ function handleRealtimePayload(
     matchedAuctionId,
     newKeys: Object.keys(payload.new ?? {}),
     oldKeys: Object.keys(payload.old ?? {}),
+    payloadErrors: payload.errors ?? null,
     table: payload.table,
   });
 
@@ -188,11 +190,19 @@ function handleRealtimePayload(
       newCurrentRoundEndAt: payload.new?.currentRoundEndAt ?? null,
       newCurrentTargetParticipantId: payload.new?.currentTargetParticipantId ?? null,
       newId: payload.new?.id ?? null,
+      newKeys: Object.keys(payload.new ?? {}),
       oldCurrentBidId: payload.old?.currentBidId ?? null,
       oldCurrentRoundEndAt: payload.old?.currentRoundEndAt ?? null,
       oldCurrentTargetParticipantId: payload.old?.currentTargetParticipantId ?? null,
       oldId: payload.old?.id ?? null,
+      oldKeys: Object.keys(payload.old ?? {}),
+      payloadErrors: payload.errors ?? null,
+      payloadNew: payload.new,
+      payloadOld: payload.old,
+      table: payload.table,
     });
+    scheduleRefresh("Auction UPDATE fallback");
+    return;
   }
 
   if (auctionIdMatches) {
