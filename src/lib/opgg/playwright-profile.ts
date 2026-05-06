@@ -1,4 +1,4 @@
-import type { Browser } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 
 type SeasonTierCandidate = {
   rank: string | null;
@@ -17,124 +17,219 @@ export async function fetchFullSeasonPeakTierWithBrowser(params: {
   success: boolean;
   warning?: string;
 }> {
-  let browser: Browser | null = null;
   const normalizedGameName = params.gameName.trim();
   const normalizedTagLine = params.tagLine.trim().replace(/^#/, "");
   const encodedSummoner = `${encodeURIComponent(normalizedGameName)}-${encodeURIComponent(normalizedTagLine)}`;
   const url = `https://op.gg/ko/lol/summoners/kr/${encodedSummoner}`;
 
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const result = await runFullSeasonLookupAttempt({ attempt, url });
+    if (result.success) return result;
+
+    if (attempt === 1 && isRetryablePlaywrightWarning(result.warning)) {
+      console.warn("[opgg-profile] retry full season lookup", {
+        attempt,
+        warning: result.warning,
+      });
+      continue;
+    }
+
+    return result;
+  }
+
+  return {
+    success: false,
+    warning: "전체 시즌 펼침 조회에 실패해 기본 표시 데이터만 사용했습니다.",
+  };
+}
+
+const blockedResourceTypes = new Set(["image", "media", "font"]);
+const blockedUrlPatterns = [
+  "analytics",
+  "google-analytics",
+  "googletagmanager",
+  "doubleclick",
+  "adservice",
+  "facebook",
+  "sentry",
+  "hotjar",
+  "clarity",
+  "taboola",
+  "criteo",
+];
+
+async function runFullSeasonLookupAttempt({
+  attempt,
+  url,
+}: {
+  attempt: number;
+  url: string;
+}): Promise<{
+  peakRank?: string | null;
+  peakTier?: string;
+  success: boolean;
+  warning?: string;
+}> {
   try {
     console.log("[opgg-profile] use playwright full season lookup", { url });
-    console.log("[opgg-profile] full season lookup start", { url });
+    console.log("[opgg-profile] full season lookup start", { attempt, url });
 
-    const launchedBrowser = await launchBrowser();
-    browser = launchedBrowser.browser;
-    console.log(`[opgg-profile] playwright runtime: ${launchedBrowser.runtime}`);
+    return await withBrowserPage(async ({ page }) => {
+      await enableResourceBlocking(page);
 
-    const context = await browser.newContext({
-      locale: "ko-KR",
-      userAgent: "1234-auction-web/1.0",
-    });
-    const page = await context.newPage();
+      console.log("[opgg-profile] playwright goto start", { attempt, url });
+      await page.goto(url, {
+        timeout: 15_000,
+        waitUntil: "domcontentloaded",
+      });
+      console.log("[opgg-profile] goto completed", { attempt, url });
+      console.log("[opgg-profile] page goto completed", { attempt, url });
 
-    await page.goto(url, {
-      timeout: 15_000,
-      waitUntil: "domcontentloaded",
-    });
-    console.log("[opgg-profile] page goto completed", { url });
-    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      const allSeasonsLocator =
+        (await page
+          .getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ })
+          .first()
+          .count()
+          .catch(() => 0)) > 0
+          ? page.getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ }).first()
+          : page.getByText(/모든\s*시즌\s*티어\s*보기/).first();
+      const hasAllSeasonsButton = (await allSeasonsLocator.count().catch(() => 0)) > 0;
+      console.log("[opgg-profile] all seasons button found", hasAllSeasonsButton);
 
-    const allSeasonsLocator =
-      (await page
-        .getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ })
-        .first()
-        .count()
-        .catch(() => 0)) > 0
-        ? page.getByRole("button", { name: /모든\s*시즌\s*티어\s*보기/ }).first()
-        : page.getByText(/모든\s*시즌\s*티어\s*보기/).first();
-    const hasAllSeasonsButton = (await allSeasonsLocator.count().catch(() => 0)) > 0;
-    console.log("[opgg-profile] all seasons button found", hasAllSeasonsButton);
+      if (!hasAllSeasonsButton) {
+        console.warn("[opgg-profile] all seasons button not found", { url });
+        return {
+          success: false,
+          warning: "전체 시즌 펼침 버튼을 찾지 못해 기본 표시 데이터만 사용했습니다.",
+        };
+      }
 
-    if (!hasAllSeasonsButton) {
-      console.warn("[opgg-profile] all seasons button not found", { url });
+      try {
+        await allSeasonsLocator.click({ timeout: 5_000 });
+        console.log("[opgg-profile] clicked all seasons button");
+      } catch (error) {
+        console.warn("[opgg-profile] all seasons button click failed", {
+          message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+          url,
+        });
+        return {
+          success: false,
+          warning: "전체 시즌 펼침 버튼 클릭에 실패해 기본 표시 데이터만 사용했습니다.",
+        };
+      }
+
+      await page
+        .waitForFunction(
+          () => {
+            const text = document.body.innerText;
+            return text.includes("닫기") || text.includes("S9") || text.includes("S8") || text.includes("S7");
+          },
+          undefined,
+          { timeout: 8_000 },
+        )
+        .catch(() => undefined);
+
+      const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
+      const candidates = parseSeasonTierCandidates(bodyText);
+      const peak = pickHighestSeasonTier(candidates);
+
+      console.log("[opgg-profile] body text sample after click", bodyText.slice(0, 1000));
+      console.log("[opgg-profile] playwright body text contains legacy seasons", {
+        hasS9: bodyText.includes("S9"),
+        hasDiamond3: bodyText.toLowerCase().includes("diamond 3"),
+        hasS8: bodyText.includes("S8"),
+        hasS7: bodyText.includes("S7"),
+        sample: bodyText.slice(0, 1000),
+      });
+      console.log("[opgg-profile] full season tier candidates", candidates);
+      console.log("[opgg-profile] compare peak candidates", candidates);
+      console.log("[opgg-profile] selected peak", {
+        tier: peak?.tier ?? null,
+        rank: peak?.rank ?? null,
+      });
+      console.log("[opgg-profile] final full peak tier", {
+        finalPeakTier: peak?.tier ?? null,
+        finalPeakRank: peak?.rank ?? null,
+      });
+
+      if (!peak?.tier) {
+        return {
+          success: false,
+          warning: "전체 시즌 티어 후보를 찾지 못해 기본 표시 데이터만 사용했습니다.",
+        };
+      }
+
       return {
-        success: false,
-        warning: "전체 시즌 펼침 버튼을 찾지 못해 기본 표시 데이터만 사용했습니다.",
+        success: true,
+        peakTier: peak.tier,
+        peakRank: peak.rank,
       };
-    }
-
-    try {
-      await allSeasonsLocator.click({ timeout: 5_000 });
-      console.log("[opgg-profile] clicked all seasons button");
-    } catch (error) {
-      console.warn("[opgg-profile] all seasons button click failed", {
-        message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+    if (isResourceFailureMessage(message)) {
+      console.warn("[opgg-profile] full season lookup resource failure", {
+        attempt,
+        message,
         url,
       });
-      return {
-        success: false,
-        warning: "전체 시즌 펼침 버튼 클릭에 실패해 기본 표시 데이터만 사용했습니다.",
-      };
     }
-
-    await page
-      .waitForFunction(
-        () => {
-          const text = document.body.innerText;
-          return text.includes("닫기") || text.includes("S9") || text.includes("S8") || text.includes("S7");
-        },
-        undefined,
-        { timeout: 8_000 },
-      )
-      .catch(() => undefined);
-
-    const bodyText = await page.locator("body").innerText({ timeout: 10_000 });
-    const candidates = parseSeasonTierCandidates(bodyText);
-    const peak = pickHighestSeasonTier(candidates);
-
-    console.log("[opgg-profile] body text sample after click", bodyText.slice(0, 1000));
-    console.log("[opgg-profile] playwright body text contains legacy seasons", {
-      hasS9: bodyText.includes("S9"),
-      hasDiamond3: bodyText.toLowerCase().includes("diamond 3"),
-      hasS8: bodyText.includes("S8"),
-      hasS7: bodyText.includes("S7"),
-      sample: bodyText.slice(0, 1000),
-    });
-    console.log("[opgg-profile] full season tier candidates", candidates);
-    console.log("[opgg-profile] compare peak candidates", candidates);
-    console.log("[opgg-profile] selected peak", {
-      tier: peak?.tier ?? null,
-      rank: peak?.rank ?? null,
-    });
-    console.log("[opgg-profile] final full peak tier", {
-      finalPeakTier: peak?.tier ?? null,
-      finalPeakRank: peak?.rank ?? null,
-    });
-
-    if (!peak?.tier) {
-      return {
-        success: false,
-        warning: "전체 시즌 티어 후보를 찾지 못해 기본 표시 데이터만 사용했습니다.",
-      };
-    }
-
-    return {
-      success: true,
-      peakTier: peak.tier,
-      peakRank: peak.rank,
-    };
-  } catch (error) {
     console.warn("[opgg-profile] playwright full season lookup failed", {
-      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+      attempt,
+      message,
       url,
     });
     return {
       success: false,
-      warning: "전체 시즌 펼침 조회에 실패해 기본 표시 데이터만 사용했습니다.",
+      warning: isResourceFailureMessage(message)
+        ? "OP.GG 전체 시즌 조회 중 브라우저 자원이 부족해 기본 표시 데이터만 사용했습니다."
+        : "전체 시즌 펼침 조회에 실패해 기본 표시 데이터만 사용했습니다.",
     };
+  }
+}
+
+async function withBrowserPage<T>(callback: ({ page }: { page: Page }) => Promise<T>) {
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
+
+  try {
+    const launchedBrowser = await launchBrowser();
+    browser = launchedBrowser.browser;
+    console.log(`[opgg-profile] playwright runtime: ${launchedBrowser.runtime}`);
+
+    context = await browser.newContext({
+      locale: "ko-KR",
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      viewport: { width: 1280, height: 900 },
+    });
+    page = await context.newPage();
+
+    return await callback({ page });
   } finally {
+    await page?.close().catch(() => undefined);
+    await context?.close().catch(() => undefined);
     await browser?.close().catch(() => undefined);
   }
+}
+
+async function enableResourceBlocking(page: Page) {
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const resourceType = request.resourceType();
+    const url = request.url().toLowerCase();
+
+    if (blockedResourceTypes.has(resourceType) || blockedUrlPatterns.some((pattern) => url.includes(pattern))) {
+      await route.abort().catch(() => undefined);
+      return;
+    }
+
+    await route.continue().catch(() => undefined);
+  });
+  console.log("[opgg-profile] route blocking enabled", {
+    blockedResourceTypes: Array.from(blockedResourceTypes),
+  });
 }
 
 async function launchBrowser(): Promise<{ browser: Browser; runtime: PlaywrightRuntime }> {
@@ -161,7 +256,7 @@ async function launchBrowser(): Promise<{ browser: Browser; runtime: PlaywrightR
     return {
       runtime: "vercel-sparticuz",
       browser: await playwrightChromium.launch({
-        args: chromium.args,
+        args: getChromiumLaunchArgs(chromium.args),
         executablePath,
         headless: true,
       }),
@@ -176,12 +271,38 @@ async function launchBrowser(): Promise<{ browser: Browser; runtime: PlaywrightR
 
   return {
     runtime: "local-playwright",
-    browser: await chromium.launch({ headless: true }),
+    browser: await chromium.launch({ args: getChromiumLaunchArgs([]), headless: true }),
   };
+}
+
+function getChromiumLaunchArgs(baseArgs: string[]) {
+  return Array.from(
+    new Set([
+      ...baseArgs,
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-background-networking",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-extensions",
+      "--mute-audio",
+      "--hide-scrollbars",
+    ]),
+  );
 }
 
 function isVercelRuntime() {
   return Boolean(process.env.VERCEL);
+}
+
+function isRetryablePlaywrightWarning(warning?: string) {
+  return Boolean(warning && (warning.includes("브라우저 자원") || warning.includes("실패")));
+}
+
+function isResourceFailureMessage(message: string) {
+  return message.includes("ERR_INSUFFICIENT_RESOURCES") || message.includes("Insufficient resources");
 }
 
 function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { fetchOpggProfileStats } from "@/lib/opgg/profile";
+import { fetchOpggProfileStats, type OpggProfileStatsResult } from "@/lib/opgg/profile";
 import { validateChampionCandidates } from "@/lib/riot/champions";
 import { fetchRiotAccountRank, RiotApiError } from "@/lib/riot/api";
 import { pickHighestRank } from "@/lib/riot/rank";
@@ -55,46 +55,63 @@ export async function refreshRiotStats({
   }
 
   try {
-    const rankResults = [];
+    const normalizedAccounts = user.lolAccounts.map((account) => ({
+      id: account.id,
+      gameName: account.gameName.trim(),
+      originalGameName: account.gameName,
+      originalTagLine: account.tagLine,
+      puuid: account.puuid,
+      tagLine: account.tagLine.trim().replace(/^#/, ""),
+    }));
+    const rankResults: Array<{ gameName: string; rank: string | null; tagLine: string; tier: string | null }> = [];
     const failedAccounts: NonNullable<RefreshRiotStatsState["failedAccounts"]> = [];
-    const successfulAccounts: Array<{ gameName: string; rank: string | null; tagLine: string; tier: string | null }> = [];
+    console.log("[profile-actions] lol accounts refresh start", {
+      accountCount: normalizedAccounts.length,
+      forceRefresh,
+    });
 
-    for (const account of user.lolAccounts) {
-      const normalizedAccount = {
-        gameName: account.gameName.trim(),
-        tagLine: account.tagLine.trim().replace(/^#/, ""),
-      };
-
+    for (const account of normalizedAccounts) {
       try {
         const result = await fetchRiotAccountRank({
-          gameName: normalizedAccount.gameName,
-          tagLine: normalizedAccount.tagLine,
+          gameName: account.gameName,
+          tagLine: account.tagLine,
           puuid: account.puuid,
         });
 
-        if (!account.puuid || account.puuid !== result.puuid || account.tagLine !== normalizedAccount.tagLine) {
+        if (
+          !account.puuid ||
+          account.puuid !== result.puuid ||
+          account.originalGameName !== account.gameName ||
+          account.originalTagLine !== account.tagLine
+        ) {
           await prisma.lolAccount.update({
             where: { id: account.id },
             data: {
               puuid: result.puuid,
-              gameName: normalizedAccount.gameName,
-              tagLine: normalizedAccount.tagLine,
+              gameName: account.gameName,
+              tagLine: account.tagLine,
             },
           });
         }
 
-        rankResults.push(result);
-        successfulAccounts.push({
-          gameName: normalizedAccount.gameName,
-          tagLine: normalizedAccount.tagLine,
+        const accountRank = {
+          gameName: account.gameName,
+          tagLine: account.tagLine,
           tier: result.tier,
           rank: result.rank,
+        };
+        rankResults.push(accountRank);
+
+        console.log("[profile-actions] account current rank result", {
+          account: formatRiotAccountLabel(account),
+          tier: accountRank.tier,
+          rank: accountRank.rank,
         });
       } catch (error) {
         const accountError = getAccountRefreshError(error);
         failedAccounts.push({
-          gameName: normalizedAccount.gameName,
-          tagLine: normalizedAccount.tagLine,
+          gameName: account.gameName,
+          tagLine: account.tagLine,
           reason: accountError.reason,
         });
 
@@ -115,25 +132,30 @@ export async function refreshRiotStats({
     }
 
     const highestRank = pickHighestRank(rankResults);
+    console.log("[profile-actions] selected highest current rank", {
+      sourceAccount: highestRank ? formatRiotAccountLabel(highestRank) : null,
+      tier: highestRank?.tier ?? null,
+      rank: highestRank?.rank ?? null,
+    });
     console.log("[profile-refresh] riot refresh completed", {
       failedAccountCount: failedAccounts.length,
       successfulAccountCount: rankResults.length,
     });
     const opggWarnings: string[] = [];
-    const selectedOpggAccount = pickHighestRank(successfulAccounts) ?? successfulAccounts[0] ?? null;
     console.log("[profile-refresh] start opgg refresh", {
       forceRefresh,
-      hasSelectedAccount: Boolean(selectedOpggAccount),
+      accountCount: normalizedAccounts.length,
     });
     const opggUpdate = await getOpggStatsUpdate({
       existingStats: user.lolStats,
       forceRefresh,
-      selectedAccount: selectedOpggAccount,
+      accounts: normalizedAccounts,
     });
     console.log("[profile-refresh] opgg refresh result", {
       hasData: Object.keys(opggUpdate.data).length > 0,
       status: opggUpdate.status,
       warning: opggUpdate.warning,
+      peakSourceAccount: opggUpdate.peakSourceAccount,
     });
     const invalidExistingChampionCleanup = await getInvalidExistingChampionCleanup(user.lolStats);
     const userLolStatsPayload = {
@@ -147,8 +169,10 @@ export async function refreshRiotStats({
     console.log("[profile-actions] UserLolStats update payload", {
       currentTier: userLolStatsPayload.currentTier,
       currentRank: userLolStatsPayload.currentRank,
+      currentSourceAccount: highestRank ? formatRiotAccountLabel(highestRank) : null,
       peakTier: "peakTier" in userLolStatsPayload ? userLolStatsPayload.peakTier : user.lolStats?.peakTier ?? null,
       peakRank: "peakRank" in userLolStatsPayload ? userLolStatsPayload.peakRank : user.lolStats?.peakRank ?? null,
+      peakSourceAccount: opggUpdate.peakSourceAccount,
       mostChampion1:
         "mostChampion1" in userLolStatsPayload ? userLolStatsPayload.mostChampion1 : user.lolStats?.mostChampion1 ?? null,
       mostChampion2:
@@ -193,10 +217,11 @@ export async function refreshRiotStats({
 }
 
 async function getOpggStatsUpdate({
+  accounts,
   existingStats,
   forceRefresh,
-  selectedAccount,
 }: {
+  accounts: Array<{ gameName: string; tagLine: string }>;
   existingStats: {
     mostChampion1: string | null;
     peakRank: string | null;
@@ -204,7 +229,6 @@ async function getOpggStatsUpdate({
     refreshedAt: Date | null;
   } | null;
   forceRefresh: boolean;
-  selectedAccount: { gameName: string; tagLine: string } | null;
 }) {
   if (!forceRefresh && isOpggCacheValid(existingStats)) {
     console.log("[opgg-profile] using cached opgg stats");
@@ -220,6 +244,7 @@ async function getOpggStatsUpdate({
       data: {},
       status: "cache" as const,
       warning: undefined,
+      peakSourceAccount: null,
     };
   }
 
@@ -233,49 +258,105 @@ async function getOpggStatsUpdate({
     });
   }
 
-  if (!selectedAccount) {
+  if (!accounts.length) {
     return {
       data: {},
       status: "failed" as const,
       warning: "OP.GG 정보를 조회하지 못했습니다.",
+      peakSourceAccount: null,
     };
   }
 
-  console.log("[opgg-profile] fetching fresh opgg stats", {
-    forceRefresh,
-    selectedAccountGameName: selectedAccount.gameName,
-  });
-  const opggStats = await fetchOpggProfileStats(selectedAccount.gameName, selectedAccount.tagLine);
+  const peakCandidates: Array<{ gameName: string; rank: string | null; tagLine: string; tier: string | null }> = [];
+  const warnings: string[] = [];
+  let firstMostChampions: Extract<OpggProfileStatsResult, { success: true }>["mostChampions"] = [];
+  let successCount = 0;
 
-  if (!opggStats.success) {
+  console.log("[opgg-profile] fetching fresh opgg stats", {
+    accountCount: accounts.length,
+    forceRefresh,
+  });
+
+  for (const account of accounts) {
+    const accountLabel = formatRiotAccountLabel(account);
+    const opggStats = await fetchOpggProfileStats(account.gameName, account.tagLine);
+
+    if (!opggStats.success) {
+      warnings.push(`${account.gameName} #${account.tagLine}: ${opggStats.warning}`);
+      console.log("[profile-actions] account peak rank result", {
+        account: accountLabel,
+        success: false,
+        warning: opggStats.warning,
+      });
+      continue;
+    }
+
+    successCount += 1;
+
+    if (opggStats.peakTier) {
+      peakCandidates.push({
+        gameName: account.gameName,
+        tagLine: account.tagLine,
+        tier: opggStats.peakTier,
+        rank: opggStats.peakRank ?? null,
+      });
+    }
+
+    if (!firstMostChampions.length && opggStats.mostChampions.length) {
+      firstMostChampions = opggStats.mostChampions;
+    }
+
+    if (opggStats.warnings.length) {
+      warnings.push(`${account.gameName} #${account.tagLine}: ${opggStats.warnings.join(" / ")}`);
+    }
+
+    console.log("[profile-actions] account peak rank result", {
+      account: accountLabel,
+      success: true,
+      tier: opggStats.peakTier ?? null,
+      rank: opggStats.peakRank ?? null,
+      mostChampionCount: opggStats.mostChampions.length,
+    });
+  }
+
+  const highestPeak = pickHighestRank(peakCandidates);
+  console.log("[profile-actions] selected highest peak rank", {
+    sourceAccount: highestPeak ? formatRiotAccountLabel(highestPeak) : null,
+    tier: highestPeak?.tier ?? null,
+    rank: highestPeak?.rank ?? null,
+  });
+
+  if (!successCount) {
     return {
       data: {},
       status: "failed" as const,
-      warning: opggStats.warning,
+      warning: warnings.join(" / ") || "OP.GG 정보를 조회하지 못했습니다.",
+      peakSourceAccount: null,
     };
   }
 
   return {
     data: {
-      ...(opggStats.peakTier
+      ...(highestPeak?.tier
         ? {
-            peakTier: opggStats.peakTier,
-            peakRank: opggStats.peakRank,
+            peakTier: highestPeak.tier,
+            peakRank: highestPeak.rank,
           }
         : {}),
-      ...(opggStats.mostChampions.length
+      ...(firstMostChampions.length
         ? {
-            mostChampion1: opggStats.mostChampions[0]?.name ?? null,
-            mostChampion2: opggStats.mostChampions[1]?.name ?? null,
-            mostChampion3: opggStats.mostChampions[2]?.name ?? null,
-            mostChampion1ImageUrl: opggStats.mostChampions[0]?.imageUrl ?? null,
-            mostChampion2ImageUrl: opggStats.mostChampions[1]?.imageUrl ?? null,
-            mostChampion3ImageUrl: opggStats.mostChampions[2]?.imageUrl ?? null,
+            mostChampion1: firstMostChampions[0]?.name ?? null,
+            mostChampion2: firstMostChampions[1]?.name ?? null,
+            mostChampion3: firstMostChampions[2]?.name ?? null,
+            mostChampion1ImageUrl: firstMostChampions[0]?.imageUrl ?? null,
+            mostChampion2ImageUrl: firstMostChampions[1]?.imageUrl ?? null,
+            mostChampion3ImageUrl: firstMostChampions[2]?.imageUrl ?? null,
           }
         : {}),
     },
     status: "success" as const,
-    warning: opggStats.warnings.length ? opggStats.warnings.join(" / ") : undefined,
+    warning: warnings.length ? warnings.join(" / ") : undefined,
+    peakSourceAccount: highestPeak ? formatRiotAccountLabel(highestPeak) : null,
   };
 }
 
@@ -315,9 +396,13 @@ function isOpggCacheValid(
   stats: { mostChampion1: string | null; peakRank: string | null; peakTier: string | null; refreshedAt: Date | null } | null,
 ) {
   if (!stats?.refreshedAt) return false;
-  if (!stats.peakTier || !stats.peakRank || !stats.mostChampion1) return false;
+  if (!stats.peakTier || !stats.mostChampion1) return false;
 
   return Date.now() - stats.refreshedAt.getTime() < 12 * 60 * 60 * 1000;
+}
+
+function formatRiotAccountLabel(account: { gameName: string; tagLine: string }) {
+  return `${account.gameName}#${account.tagLine}`;
 }
 
 function getRefreshMessage({
