@@ -140,6 +140,15 @@ async function runFullSeasonLookupAttempt({
         length: soloRankTierSection.text.length,
         sample: soloRankTierSection.text.slice(0, 1000),
       });
+      console.log("[opgg-profile] solo section indexes", {
+        headerIndex: soloRankTierSection.headerIndex,
+        soloStart: soloRankTierSection.soloStart,
+        flexStart: soloRankTierSection.flexStart,
+        closeIndex: soloRankTierSection.closeIndex,
+        soloEnd: soloRankTierSection.soloEnd,
+        soloSectionLength: soloRankTierSection.text.length,
+      });
+      console.log("[opgg-profile] solo section sample", soloRankTierSection.text.slice(0, 1000));
       console.log("[opgg-profile] flex rank section ignored", {
         found: soloRankTierSection.flexFound,
       });
@@ -320,7 +329,7 @@ function isResourceFailureMessage(message: string) {
 }
 
 function getSoloRankTierSection(text: string) {
-  const soloStartIndex = findFirstMarkerIndex(text, [
+  const soloMarkers = [
     "개인/2인 랭크 게임",
     "개인/2인 랭크",
     "솔로/듀오",
@@ -328,26 +337,81 @@ function getSoloRankTierSection(text: string) {
     "솔로랭크",
     "Solo/Duo",
     "Ranked Solo/Duo",
-  ]);
-  const flexStartIndex = findFirstMarkerIndex(text, ["자유 랭크 게임", "자유 랭크", "Ranked Flex"], {
-    fromIndex: soloStartIndex >= 0 ? soloStartIndex : 0,
+  ];
+  const flexMarkers = ["자유 랭크 게임", "자유 랭크", "Ranked Flex"];
+  const closeMarkers = ["닫기", "Close"];
+  const headerIndex = findSoloSeasonTableHeaderIndex(text, soloMarkers, flexMarkers);
+  const fallbackHeaderIndex = headerIndex >= 0 ? headerIndex : findFirstSeasonPatternIndex(text);
+  const soloStartIndex = headerIndex >= 0 ? findLastMarkerIndex(text, soloMarkers, headerIndex) : -1;
+  const sectionStartIndex = soloStartIndex >= 0 ? soloStartIndex : fallbackHeaderIndex;
+  const flexStartIndex =
+    fallbackHeaderIndex >= 0 ? findFirstMarkerIndex(text, flexMarkers, { fromIndex: fallbackHeaderIndex }) : -1;
+  const closeIndex =
+    fallbackHeaderIndex >= 0 ? findFirstMarkerIndex(text, closeMarkers, { fromIndex: fallbackHeaderIndex }) : -1;
+  const soloEnd = getNearestSectionEnd({
+    fallbackEnd: sectionStartIndex >= 0 ? sectionStartIndex + 20_000 : -1,
+    minIndex: fallbackHeaderIndex,
+    indexes: [flexStartIndex, closeIndex],
   });
 
-  if (soloStartIndex < 0) {
+  if (sectionStartIndex < 0 || soloEnd <= sectionStartIndex) {
     return {
       found: false,
       flexFound: flexStartIndex >= 0,
+      headerIndex,
+      soloStart: soloStartIndex,
+      flexStart: flexStartIndex,
+      closeIndex,
+      soloEnd: -1,
       text: "",
     };
   }
 
-  const endIndex = flexStartIndex > soloStartIndex ? flexStartIndex : soloStartIndex + 20_000;
-
   return {
-    found: true,
-    flexFound: flexStartIndex > soloStartIndex,
-    text: text.slice(soloStartIndex, endIndex),
+    found: soloStartIndex >= 0,
+    flexFound: flexStartIndex > fallbackHeaderIndex,
+    headerIndex,
+    soloStart: soloStartIndex,
+    flexStart: flexStartIndex,
+    closeIndex,
+    soloEnd,
+    text: text.slice(sectionStartIndex, soloEnd),
   };
+}
+
+function findSoloSeasonTableHeaderIndex(text: string, soloMarkers: string[], flexMarkers: string[]) {
+  const headerIndexes = Array.from(text.matchAll(/시즌\s*티어\s*LP|Season\s*Tier\s*LP/gi))
+    .map((match) => match.index ?? -1)
+    .filter((index) => index >= 0);
+
+  for (const headerIndex of headerIndexes) {
+    const soloStartIndex = findLastMarkerIndex(text, soloMarkers, headerIndex);
+    const previousFlexIndex = findLastMarkerIndex(text, flexMarkers, headerIndex);
+
+    if (soloStartIndex >= 0 && soloStartIndex > previousFlexIndex) {
+      return headerIndex;
+    }
+  }
+
+  return headerIndexes[0] ?? -1;
+}
+
+function findFirstSeasonPatternIndex(text: string) {
+  const match = /\b(?:S20\d{2}(?:\s+S\d)?|S\d{1,2})\b/i.exec(text);
+  return match?.index ?? -1;
+}
+
+function getNearestSectionEnd({
+  fallbackEnd,
+  indexes,
+  minIndex,
+}: {
+  fallbackEnd: number;
+  indexes: number[];
+  minIndex: number;
+}) {
+  const nearest = indexes.filter((index) => index > minIndex).sort((a, b) => a - b)[0];
+  return nearest ?? fallbackEnd;
 }
 
 function findFirstMarkerIndex(
@@ -359,6 +423,13 @@ function findFirstMarkerIndex(
     .map((marker) => text.indexOf(marker, fromIndex))
     .filter((index) => index >= 0)
     .sort((a, b) => a - b)[0] ?? -1;
+}
+
+function findLastMarkerIndex(text: string, markers: string[], beforeIndex: number) {
+  return markers
+    .map((marker) => text.lastIndexOf(marker, beforeIndex))
+    .filter((index) => index >= 0)
+    .sort((a, b) => b - a)[0] ?? -1;
 }
 
 function parseSeasonTierCandidates(text: string): SeasonTierCandidate[] {
