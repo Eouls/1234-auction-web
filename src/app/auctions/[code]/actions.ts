@@ -31,6 +31,7 @@ export type CaptainActionState = {
 
 const editableAuctionStatuses = new Set<string>([AuctionStatus.DRAFT, AuctionStatus.READY]);
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
+const BID_GRACE_PERIOD_MS = 2000;
 
 export type AuctionActionState = CaptainActionState;
 
@@ -169,7 +170,16 @@ export async function placeBid(
       }
 
       const now = new Date();
-      if (auction.currentRoundEndAt.getTime() <= now.getTime()) {
+      const bidDeadline = new Date(auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS);
+      const withinGracePeriod = now.getTime() <= bidDeadline.getTime();
+      console.log("[auction-bid] grace period check", {
+        bidDeadline: bidDeadline.toISOString(),
+        currentRoundEndAt: auction.currentRoundEndAt.toISOString(),
+        now: now.toISOString(),
+        withinGracePeriod,
+      });
+
+      if (!withinGracePeriod) {
         throw new CaptainActionError("경매 시간이 종료되어 입찰할 수 없습니다.");
       }
 
@@ -222,6 +232,7 @@ export async function placeBid(
         auctionSeconds: auction.auctionSeconds,
         currentRoundEndAt: auction.currentRoundEndAt,
         extendSeconds: auction.extendSeconds,
+        gracePeriodMs: BID_GRACE_PERIOD_MS,
         now,
       });
 
@@ -1023,20 +1034,23 @@ function getCappedExtendedRoundEndAt({
   auctionSeconds,
   currentRoundEndAt,
   extendSeconds,
+  gracePeriodMs,
   now,
 }: {
   auctionSeconds: number;
   currentRoundEndAt: Date;
   extendSeconds: number;
+  gracePeriodMs: number;
   now: Date;
 }) {
   const currentRemainingMs = currentRoundEndAt.getTime() - now.getTime();
-  if (currentRemainingMs <= 0) return null;
+  if (currentRemainingMs < -gracePeriodMs) return null;
 
   const extendMs = Math.max(0, extendSeconds) * 1000;
   const extendedRemainingMs = currentRemainingMs + extendMs;
   const maxMs = auctionSeconds > 0 ? auctionSeconds * 1000 : extendedRemainingMs;
   const nextRemainingMs = Math.min(extendedRemainingMs, maxMs);
+  if (nextRemainingMs <= 0) return currentRoundEndAt;
 
   return new Date(now.getTime() + nextRemainingMs);
 }

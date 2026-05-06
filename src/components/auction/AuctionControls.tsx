@@ -12,6 +12,8 @@ import {
 import { Button, Card, Input } from "@/components/ui";
 
 const initialState: AuctionActionState = {};
+const AUTO_FINALIZE_DELAY_MS = 2000;
+const BID_GRACE_PERIOD_MS = 2000;
 
 type AuctionStartControlProps = {
   auctionId: string;
@@ -95,6 +97,7 @@ export function BidControls({
   const [isAutoFinalizing, startAutoFinalizeTransition] = useTransition();
   const [directAmount, setDirectAmount] = useState("");
   const [hasMounted, setHasMounted] = useState(false);
+  const [remainingMs, setRemainingMs] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
@@ -102,7 +105,7 @@ export function BidControls({
   const isAutoFinalizingRef = useRef(false);
   const playedSecondKeysRef = useRef<Set<string>>(new Set());
   const roundKeyRef = useRef("");
-  const soundRoundKeyRef = useRef("");
+  const soundCycleKeyRef = useRef("");
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -117,12 +120,14 @@ export function BidControls({
   useEffect(() => {
     if (!hasMounted) return;
 
-    const updateRemainingSeconds = () => {
-      setRemainingSeconds(getRemainingSeconds(currentRoundEndAt));
+    const updateRemainingTime = () => {
+      const nextRemainingMs = getRemainingMs(currentRoundEndAt);
+      setRemainingMs(nextRemainingMs);
+      setRemainingSeconds(Math.max(0, Math.ceil(nextRemainingMs / 1000)));
     };
-    const initialTimer = window.setTimeout(updateRemainingSeconds, 0);
+    const initialTimer = window.setTimeout(updateRemainingTime, 0);
     const timer = window.setInterval(() => {
-      updateRemainingSeconds();
+      updateRemainingTime();
     }, 1000);
 
     return () => {
@@ -132,10 +137,11 @@ export function BidControls({
   }, [currentRoundEndAt, hasMounted]);
 
   const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
-  const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isTimeOver || isBidding;
+  const isBidGraceExpired = hasMounted ? remainingMs < -BID_GRACE_PERIOD_MS : true;
+  const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
   const roundKey = `${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
-  const soundRoundKey = `${auctionId}:${currentTargetParticipantId ?? "no-target"}`;
+  const soundCycleKey = `${auctionId}:${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
 
   const presetAmounts = useMemo(
     () => [5, 10, 50, 100].map((increment) => currentBidAmount + increment),
@@ -173,39 +179,53 @@ export function BidControls({
   }, [roundKey]);
 
   useEffect(() => {
-    if (soundRoundKeyRef.current === soundRoundKey) return;
+    if (soundCycleKeyRef.current === soundCycleKey) return;
 
-    soundRoundKeyRef.current = soundRoundKey;
-    Array.from(endSoundPlayedKeysRef.current).forEach((key) => {
-      if (key.startsWith(`${soundRoundKey}:`)) return;
-      endSoundPlayedKeysRef.current.delete(key);
+    soundCycleKeyRef.current = soundCycleKey;
+    endSoundPlayedKeysRef.current.clear();
+    playedSecondKeysRef.current.clear();
+    console.log("[auction-countdown-sound] sound cycle reset", {
+      auctionId,
+      currentRoundEndAt,
+      currentTargetParticipantId,
     });
-    Array.from(playedSecondKeysRef.current).forEach((key) => {
-      if (key.startsWith(`${soundRoundKey}:`)) return;
-      playedSecondKeysRef.current.delete(key);
-    });
-  }, [soundRoundKey]);
+  }, [auctionId, currentRoundEndAt, currentTargetParticipantId, soundCycleKey]);
 
   useEffect(() => {
-    if (!hasMounted || !isSoundEnabled || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+    if (!hasMounted || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+    if (!isSoundEnabled) {
+      if (remainingSeconds >= 0 && remainingSeconds <= 10) {
+        console.log("[auction-countdown-sound] skipped because sound disabled", {
+          auctionId,
+          remainingSeconds,
+        });
+      }
+      return;
+    }
 
     if (remainingSeconds >= 1 && remainingSeconds <= 10) {
-      const playedKey = `${soundRoundKey}:${remainingSeconds}`;
+      const playedKey = `${soundCycleKey}:${remainingSeconds}`;
       if (playedSecondKeysRef.current.has(playedKey)) return;
 
       playedSecondKeysRef.current.add(playedKey);
+      console.log("[auction-countdown-sound] play beep", {
+        auctionId,
+        remainingSeconds,
+      });
       playCountdownSound("/sounds/countdown-beep.mp3");
       return;
     }
 
     if (remainingSeconds === 0) {
-      const endSoundKey = `${soundRoundKey}:end`;
+      const endSoundKey = `${soundCycleKey}:end`;
       if (endSoundPlayedKeysRef.current.has(endSoundKey)) return;
 
       endSoundPlayedKeysRef.current.add(endSoundKey);
+      console.log("[auction-countdown-sound] play end", { auctionId });
       playCountdownSound("/sounds/countdown-end.mp3");
     }
   }, [
+    auctionId,
     currentRoundEndAt,
     currentTargetParticipantId,
     hasMounted,
@@ -213,7 +233,7 @@ export function BidControls({
     isRunning,
     isSoundEnabled,
     remainingSeconds,
-    soundRoundKey,
+    soundCycleKey,
   ]);
 
   useEffect(() => {
@@ -222,19 +242,41 @@ export function BidControls({
     if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
     const finalizeRoundKey = roundKey;
-    const endSoundKey = `${soundRoundKey}:end`;
+    const endSoundKey = `${soundCycleKey}:end`;
 
     if (isSoundEnabled && !endSoundPlayedKeysRef.current.has(endSoundKey)) {
       endSoundPlayedKeysRef.current.add(endSoundKey);
+      console.log("[auction-countdown-sound] play end", { auctionId });
       playCountdownSound("/sounds/countdown-end.mp3");
     }
 
-    const timeout = window.setTimeout(() => {
-      if (roundKeyRef.current !== finalizeRoundKey) return;
-      if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
+    console.log("[auction-timer] zero reached", { auctionId, roundKey: finalizeRoundKey });
+    console.log("[auction-timer] finalize scheduled", {
+      auctionId,
+      delayMs: AUTO_FINALIZE_DELAY_MS,
+      roundKey: finalizeRoundKey,
+    });
 
-      autoFinalizeKeysRef.current.add(roundKey);
+    const timeout = window.setTimeout(() => {
+      if (roundKeyRef.current !== finalizeRoundKey) {
+        console.log("[auction-timer] finalize cancelled stale round", {
+          auctionId,
+          currentRoundKey: roundKeyRef.current,
+          scheduledRoundKey: finalizeRoundKey,
+        });
+        return;
+      }
+      if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(finalizeRoundKey)) {
+        console.log("[auction-timer] finalize skipped because round extended", {
+          auctionId,
+          roundKey: finalizeRoundKey,
+        });
+        return;
+      }
+
+      autoFinalizeKeysRef.current.add(finalizeRoundKey);
       isAutoFinalizingRef.current = true;
+      console.log("[auction-timer] finalize executing", { auctionId, roundKey: finalizeRoundKey });
 
       const formData = new FormData();
       formData.set("auctionId", auctionId);
@@ -258,7 +300,7 @@ export function BidControls({
         isAutoFinalizingRef.current = false;
         router.refresh();
       });
-    }, 500);
+    }, AUTO_FINALIZE_DELAY_MS);
 
     return () => {
       window.clearTimeout(timeout);
@@ -276,7 +318,7 @@ export function BidControls({
     remainingSeconds,
     router,
     roundKey,
-    soundRoundKey,
+    soundCycleKey,
   ]);
 
   return (
@@ -357,9 +399,9 @@ export function BidControls({
   );
 }
 
-function getRemainingSeconds(date: string | null) {
+function getRemainingMs(date: string | null) {
   if (!date) return 0;
-  return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 1000));
+  return new Date(date).getTime() - Date.now();
 }
 
 function playCountdownSound(src: string) {
