@@ -128,7 +128,7 @@ export function BidControls({
     const initialTimer = window.setTimeout(updateRemainingTime, 0);
     const timer = window.setInterval(() => {
       updateRemainingTime();
-    }, 1000);
+    }, 250);
 
     return () => {
       window.clearTimeout(initialTimer);
@@ -138,6 +138,7 @@ export function BidControls({
 
   const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
   const isBidGraceExpired = hasMounted ? remainingMs < -BID_GRACE_PERIOD_MS : true;
+  const isGracePeriodActive = isTimeOver && isRunning && hasTarget && !isBidGraceExpired;
   const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
   const roundKey = `${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
@@ -194,7 +195,7 @@ export function BidControls({
   useEffect(() => {
     if (!hasMounted || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
     if (!isSoundEnabled) {
-      if (remainingSeconds >= 0 && remainingSeconds <= 10) {
+      if (remainingSeconds >= 1 && remainingSeconds <= 10) {
         console.log("[auction-countdown-sound] skipped because sound disabled", {
           auctionId,
           remainingSeconds,
@@ -213,16 +214,6 @@ export function BidControls({
         remainingSeconds,
       });
       playCountdownSound("/sounds/countdown-beep.mp3");
-      return;
-    }
-
-    if (remainingSeconds === 0) {
-      const endSoundKey = `${soundCycleKey}:end`;
-      if (endSoundPlayedKeysRef.current.has(endSoundKey)) return;
-
-      endSoundPlayedKeysRef.current.add(endSoundKey);
-      console.log("[auction-countdown-sound] play end", { auctionId });
-      playCountdownSound("/sounds/countdown-end.mp3");
     }
   }, [
     auctionId,
@@ -237,18 +228,66 @@ export function BidControls({
   ]);
 
   useEffect(() => {
+    if (!hasMounted || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
+
+    const scheduledSoundCycleKey = soundCycleKey;
+    const delayMs = Math.max(0, new Date(currentRoundEndAt).getTime() - Date.now());
+
+    const timeout = window.setTimeout(() => {
+      if (soundCycleKeyRef.current !== scheduledSoundCycleKey) {
+        console.log("[auction-countdown-sound] skipped stale end sound", {
+          auctionId,
+          currentSoundCycleKey: soundCycleKeyRef.current,
+          scheduledSoundCycleKey,
+        });
+        return;
+      }
+
+      if (!isSoundEnabled) {
+        console.log("[auction-countdown-sound] skipped because sound disabled", {
+          auctionId,
+          remainingSeconds: 0,
+        });
+        return;
+      }
+
+      const endSoundKey = `${soundCycleKey}:end`;
+      if (endSoundPlayedKeysRef.current.has(endSoundKey)) return;
+
+      endSoundPlayedKeysRef.current.add(endSoundKey);
+      console.log("[auction-countdown-sound] play end at zero", { auctionId, soundCycleKey });
+      playCountdownSound("/sounds/countdown-end.mp3");
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    auctionId,
+    currentRoundEndAt,
+    currentTargetParticipantId,
+    hasMounted,
+    hasTarget,
+    isRunning,
+    isSoundEnabled,
+    soundCycleKey,
+  ]);
+
+  useEffect(() => {
+    if (!isGracePeriodActive) return;
+
+    console.log("[auction-ui] grace period active", {
+      auctionId,
+    });
+    console.log("[auction-ui] waiting message shown below controls", { auctionId });
+  }, [auctionId, isGracePeriodActive]);
+
+  useEffect(() => {
     if (!hasMounted || !isOwner || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
     if (remainingSeconds > 0) return;
     if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
     const finalizeRoundKey = roundKey;
-    const endSoundKey = `${soundCycleKey}:end`;
-
-    if (isSoundEnabled && !endSoundPlayedKeysRef.current.has(endSoundKey)) {
-      endSoundPlayedKeysRef.current.add(endSoundKey);
-      console.log("[auction-countdown-sound] play end", { auctionId });
-      playCountdownSound("/sounds/countdown-end.mp3");
-    }
 
     console.log("[auction-timer] zero reached", { auctionId, roundKey: finalizeRoundKey });
     console.log("[auction-timer] finalize scheduled", {
@@ -314,11 +353,9 @@ export function BidControls({
     hasTarget,
     isOwner,
     isRunning,
-    isSoundEnabled,
     remainingSeconds,
     router,
     roundKey,
-    soundCycleKey,
   ]);
 
   return (
@@ -341,11 +378,6 @@ export function BidControls({
         <Info label="현재 최고 입찰 팀" value={currentBidTeamName} strong />
         <Info label="현재 최고 입찰가" value={`${currentBidAmount}P`} strong />
       </div>
-      {isTimeOver && isRunning && hasTarget ? (
-        <p className="mt-3 rounded-md border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-          {isOwner ? "라운드 종료를 자동 처리하는 중입니다." : "라운드 종료 대기 중입니다."}
-        </p>
-      ) : null}
       <div className="mt-5 flex flex-wrap gap-2">
         {presetAmounts.map((amount) => (
           <form action={bidAction} key={amount}>
@@ -375,6 +407,13 @@ export function BidControls({
             입찰
           </Button>
         </form>
+      </div>
+      <div className="mt-3 min-h-[42px]">
+        {isTimeOver && isRunning && hasTarget ? (
+          <p className="rounded-md border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            {isOwner ? "라운드 종료를 자동 처리하는 중입니다." : "라운드 종료 대기 중입니다."}
+          </p>
+        ) : null}
       </div>
       {!canBid && !isTeamFull ? <p className="mt-3 text-xs text-slate-500">팀장만 입찰할 수 있습니다.</p> : null}
       {isCurrentBidderTeam ? (
