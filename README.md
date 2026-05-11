@@ -119,6 +119,17 @@ scripts/
   seed.ts
 ```
 
+## 핵심 구현 포인트
+
+- 경매 시작, 입찰, 라운드 종료, 팀장 설정, 포인트 수정 같은 핵심 변경은 **Server Actions**에서 처리합니다.
+- 입찰/낙찰 확정은 **Prisma transaction** 안에서 검증과 DB 업데이트를 함께 수행해, 포인트 차감과 참가자 상태가 어긋나지 않도록 구성했습니다.
+- 경매방은 Supabase Realtime으로 `AuctionBid`, `Auction`, `AuctionParticipant`, `AuctionTeam` 이벤트를 구독하고, 이벤트 수신 시 debounce된 `router.refresh()`로 서버 데이터를 다시 읽습니다.
+- 자동 라운드 종료는 중복 finalize를 막기 위해 라운드 키와 stale timeout 검증을 사용합니다.
+- 0초 직전/직후 네트워크 지연을 고려해 2초 grace period를 두고, 서버 입찰 검증도 같은 기준을 사용합니다.
+- OP.GG 전체 시즌 최고 티어 조회는 서버 전용 Playwright 유틸에서 처리하며, Vercel serverless 환경에서는 `playwright-core`와 `@sparticuz/chromium` 조합을 사용합니다.
+- 롤 계정이 여러 개일 때 현재 티어, 최고 티어, 현재 시즌 모스트 챔피언을 계정별로 조회한 뒤 사용자 단위로 집계합니다.
+- 낙찰가 통계는 `AuctionSoldRecord`로 중복 반영을 막고, `UserAuctionStats`에 누적 낙찰가, 평균 낙찰가, 직전 낙찰가를 저장합니다.
+
 ## 데이터 모델 요약
 
 주요 Prisma 모델은 다음과 같습니다.
@@ -131,11 +142,12 @@ scripts/
 - `AuctionParticipant`: 경매 참가자, 상태, 낙찰 팀/가격
 - `AuctionBid`: 입찰 로그
 - `ChatMessage`: 전체/팀 채팅
+- `InternalMatch`: 내전 경기 기록
+- `InternalMatchPlayer`: 내전 경기의 플레이어별 챔피언, K/D/A, 승패 기록
 - `UserAuctionStats`: 유저별 평균/최근 낙찰가 통계
 - `AuctionSoldRecord`: 중복 방지용 낙찰 기록
-- `InternalMatch`, `InternalMatchPlayer`: 내전 결과 기록
 
-## 로컬 실행
+## 실행 방법
 
 ### 1. 설치
 
@@ -143,7 +155,7 @@ scripts/
 npm install
 ```
 
-### 2. 환경변수 설정
+### 2. 환경변수 준비
 
 `.env.local`에 필요한 값을 설정합니다. 실제 값은 README나 GitHub에 올리지 않습니다.
 
@@ -152,7 +164,7 @@ DATABASE_URL=
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 RIOT_API_KEY=
-ENABLE_OPGG_PLAYWRIGHT=true
+ENABLE_OPGG_PLAYWRIGHT=
 ```
 
 Supabase Discord OAuth 설정, Storage bucket, Realtime publication, RLS 정책은 Supabase Dashboard에서 별도로 설정해야 합니다.
@@ -178,6 +190,12 @@ npm run dev
 
 기본 주소는 [http://localhost:3000](http://localhost:3000) 입니다.
 
+### 5. 빌드
+
+```bash
+npm run build
+```
+
 ## 주요 명령어
 
 ```bash
@@ -186,6 +204,18 @@ npm run build    # Prisma generate + Next production build
 npm run start    # production 서버
 npm run lint     # ESLint
 npm run db:seed  # seed 실행
+```
+
+## 환경변수
+
+현재 코드에서 사용하는 환경변수 이름은 다음과 같습니다. 값은 각자 로컬 `.env.local` 또는 배포 환경에만 설정합니다.
+
+```env
+DATABASE_URL=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+RIOT_API_KEY=
+ENABLE_OPGG_PLAYWRIGHT=
 ```
 
 ## 외부 연동 메모
@@ -215,16 +245,32 @@ OP.GG는 보조 데이터 소스로 사용합니다.
 
 환경에 따라 RLS/SELECT 정책도 함께 확인해야 합니다.
 
-## 배포 메모
+## 배포
 
-- `npm run build`는 `prisma generate && next build`를 실행합니다.
+- Vercel 배포를 기준으로 구성되어 있습니다.
+- Supabase 프로젝트를 만들고 Auth, Storage, Realtime, Database 설정을 연결해야 합니다.
+- Vercel Project Settings에 위 환경변수들을 등록해야 합니다.
+- `npm run build`는 `prisma generate && next build`를 실행하므로, 배포 빌드 전에 Prisma Client가 생성됩니다.
 - Vercel에서 OP.GG Playwright 조회를 사용하려면 `@sparticuz/chromium`이 serverless bundle에 포함되어야 합니다.
 - `next.config.ts`에서 `serverExternalPackages`와 `outputFileTracingIncludes`를 설정해 Chromium 실행 파일을 포함합니다.
 - Server Action 파일 업로드 제한은 내전 스크린샷 OCR을 위해 `6mb`로 설정되어 있습니다.
+- Supabase Realtime을 쓰려면 `Auction`, `AuctionBid`, `AuctionParticipant`, `AuctionTeam`, `ChatMessage` 테이블의 Realtime publication 설정을 확인해야 합니다.
+- Vercel custom domain을 연결해 운영할 수 있습니다.
 
 ## 주의사항
 
 - `.env`, `.env.local` 같은 실제 환경변수 파일은 커밋하지 않습니다.
 - Riot API Key, Supabase key, DB URL은 코드나 README에 직접 넣지 않습니다.
+- Riot Development API Key는 만료가 빠르기 때문에 운영 용도라면 Personal/Production Key 발급을 고려해야 합니다.
+- Supabase Realtime은 테이블 publication과 RLS/SELECT 정책 설정이 맞아야 이벤트가 클라이언트로 전달됩니다.
 - OP.GG 파싱은 공개 페이지 구조에 의존하므로, OP.GG HTML 구조가 바뀌면 파서 수정이 필요할 수 있습니다.
+- OP.GG Playwright 조회는 외부 사이트 응답 속도와 serverless Chromium 리소스에 영향을 받을 수 있습니다.
 
+## 향후 개선 계획
+
+- 내전 결과 스크린샷 OCR 정확도 개선
+- 내전 기록 기반 유저별 승률, 챔피언 승률, 챔프폭 통계 추가
+- 유저별 낙찰가 통계 상세 UI 추가
+- 경매 기록과 내전 기록을 모아보는 히스토리 페이지 추가
+- 모바일 경매 진행 화면 UX 개선
+- OP.GG 조회 실패/구조 변경에 대한 fallback 강화
