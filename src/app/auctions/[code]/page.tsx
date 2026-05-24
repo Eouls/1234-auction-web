@@ -6,6 +6,7 @@ import { AuctionStartControl, BidControls } from "@/components/auction/AuctionCo
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
 import { AuctionPresenceHeartbeat } from "@/components/auction/AuctionPresenceHeartbeat";
 import { AuctionRoomRealtime } from "@/components/auction/AuctionRoomRealtime";
+import { AuctionStartAutoScroll } from "@/components/auction/AuctionStartAutoScroll";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Avatar,
@@ -238,6 +239,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
     <AppShell contentClassName="max-w-[1720px] px-4 lg:px-6 2xl:px-8">
       <AuctionPresenceHeartbeat auctionId={auction.id} enabled={isCaptainEditable} isParticipant={isParticipant} />
       <AuctionRoomRealtime auctionId={auction.id} />
+      <AuctionStartAutoScroll isAuctionRunning={isRunning} targetId="auction-main-panel" />
       <PageHeader
         eyebrow={`Room ${auction.code}`}
         title={auction.title}
@@ -342,7 +344,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           />
         </aside>
 
-        <section className="space-y-4">
+        <section id="auction-main-panel" className="scroll-mt-24 space-y-4">
           <Card className="p-6">
             {isRunning && currentTarget ? (
               currentTarget ? (
