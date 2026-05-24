@@ -298,7 +298,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           isRunning={isRunning}
         />
       </Card>
-      <div className="mt-8 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(560px,1fr)_440px] 2xl:grid-cols-[340px_minmax(620px,1fr)_520px]">
+      <div className="mt-8 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(560px,1fr)_420px] 2xl:grid-cols-[340px_minmax(620px,1fr)_480px]">
         <aside className="space-y-4 lg:col-span-2 xl:col-span-1">
           <SectionTitle title="팀 현황" description="방장만 팀장을 선택하거나 해제할 수 있습니다." />
           <CaptainSetupPanel
@@ -467,7 +467,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         <aside className="space-y-4">
           <Card className="p-3">
             <SectionTitle title="참가자 목록" />
-            <div className="grid max-h-[560px] grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className="grid max-h-[560px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">
               {sortedParticipants.map((participant) => {
                 const isCurrentTarget = participant.id === auction.currentTargetParticipantId;
                 const soldTeam = participant.teamId
