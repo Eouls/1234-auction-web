@@ -634,14 +634,14 @@ function Info({
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-slate-950/60 p-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex shrink-0 items-baseline gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="min-w-[96px] shrink-0">
           <p className="whitespace-nowrap text-xs text-slate-500">{label}</p>
-          <p className={strong ? "whitespace-nowrap text-xl font-black text-cyan-200" : "whitespace-nowrap text-sm font-semibold text-slate-100"}>
+          <p className={strong ? "mt-1 whitespace-nowrap text-3xl font-black leading-none text-cyan-200" : "mt-1 whitespace-nowrap text-sm font-semibold text-slate-100"}>
             {value}
           </p>
         </div>
-        {action ? <div className="ml-auto min-w-0">{action}</div> : null}
+        {action ? <div className="ml-auto min-w-0 shrink-0">{action}</div> : null}
       </div>
     </div>
   );
