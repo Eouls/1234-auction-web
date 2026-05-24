@@ -397,7 +397,7 @@ export function BidControls({
 
   return (
     <Card className="p-5">
-      <div className="grid gap-3 lg:grid-cols-[minmax(190px,0.8fr)_minmax(0,2.2fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.9fr)]">
         <Info
           action={
             <SoundControl
@@ -530,7 +530,7 @@ function SoundControl({
   const displayVolume = Math.round(clampVolume(volume) * 100);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <button
         aria-label={isEnabled ? "효과음 끄기" : "효과음 켜기"}
         className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
@@ -544,11 +544,11 @@ function SoundControl({
       >
         {isEnabled ? <VolumeIcon /> : <MutedVolumeIcon />}
       </button>
-      <label className={`flex items-center gap-2 text-[11px] text-slate-500 ${isEnabled ? "" : "opacity-50"}`}>
+      <label className={`flex shrink-0 items-center gap-2 text-[11px] text-slate-500 ${isEnabled ? "" : "opacity-50"}`}>
         <span className="sr-only">효과음 볼륨</span>
         <input
           aria-label="효과음 볼륨"
-          className="h-1.5 w-16 accent-[var(--accent)] disabled:cursor-not-allowed"
+          className="h-1.5 w-20 accent-[var(--accent)] disabled:cursor-not-allowed"
           disabled={!isEnabled}
           max={1}
           min={0}
@@ -588,15 +588,15 @@ function CurrentBidSummary({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-md border p-3 transition-all duration-500 ${toneClass} ${
+      className={`relative overflow-hidden rounded-md border p-4 transition-all duration-500 ${toneClass} ${
         isHighlightActive ? "shadow-lg shadow-amber-500/15 ring-2 ring-amber-300/60" : ""
       }`}
     >
       {hasBid ? (
         <div className="absolute inset-y-0 left-0 w-1 bg-amber-300/80" aria-hidden="true" />
       ) : null}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:justify-start">
-        <div className="min-w-0 sm:max-w-[280px]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+        <div className="min-w-0 flex-1 pl-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs font-semibold text-slate-500">현재 최고 입찰</p>
             {isHighlightActive ? (
@@ -610,7 +610,7 @@ function CurrentBidSummary({
             {statusLabel}
           </p>
         </div>
-        <div className="shrink-0 rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-right sm:min-w-[132px]">
+        <div className="shrink-0 rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-right sm:w-[150px]">
           <p className="text-[11px] font-semibold text-slate-500">최고 입찰가</p>
           <p className={hasBid ? "mt-1 text-2xl font-black text-amber-100" : "mt-1 text-2xl font-black text-slate-300"}>
             {amount.toLocaleString()}P
@@ -634,13 +634,15 @@ function Info({
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-slate-950/60 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="shrink-0 whitespace-nowrap text-xs text-slate-500">{label}</p>
-        {action}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex shrink-0 items-baseline gap-2">
+          <p className="whitespace-nowrap text-xs text-slate-500">{label}</p>
+          <p className={strong ? "whitespace-nowrap text-xl font-black text-cyan-200" : "whitespace-nowrap text-sm font-semibold text-slate-100"}>
+            {value}
+          </p>
+        </div>
+        {action ? <div className="ml-auto min-w-0">{action}</div> : null}
       </div>
-      <p className={strong ? "mt-1 text-xl font-black text-cyan-200" : "mt-1 text-sm font-semibold text-slate-100"}>
-        {value}
-      </p>
     </div>
   );
 }

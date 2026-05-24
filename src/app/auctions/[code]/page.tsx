@@ -607,24 +607,25 @@ function getPeakTierBorderClass(peakTier?: string | null) {
 
   switch (normalizedTier) {
     case "CHALLENGER":
-      return "border-amber-300/80 shadow-[0_0_0_1px_rgb(252_211_77_/_0.18)]";
+      return "border-[#4FD8FF]";
     case "GRANDMASTER":
-      return "border-rose-400/75 shadow-[0_0_0_1px_rgb(251_113_133_/_0.16)]";
+      return "border-[#E74C5E]";
     case "MASTER":
-      return "border-purple-400/75 shadow-[0_0_0_1px_rgb(192_132_252_/_0.14)]";
+      return "border-[#B15CFF]";
     case "DIAMOND":
-      return "border-cyan-300/75 shadow-[0_0_0_1px_rgb(103_232_249_/_0.14)]";
+      return "border-[#5DADEC]";
     case "EMERALD":
-      return "border-emerald-400/75 shadow-[0_0_0_1px_rgb(52_211_153_/_0.14)]";
+      return "border-[#2ECC71]";
     case "PLATINUM":
-      return "border-teal-300/75 shadow-[0_0_0_1px_rgb(94_234_212_/_0.14)]";
+      return "border-[#4DB6AC]";
     case "GOLD":
-      return "border-yellow-400/75 shadow-[0_0_0_1px_rgb(250_204_21_/_0.14)]";
+      return "border-[#D6A93A]";
     case "SILVER":
-      return "border-zinc-300/75 shadow-[0_0_0_1px_rgb(212_212_216_/_0.12)]";
+      return "border-[#B8C0C8]";
     case "BRONZE":
-      return "border-orange-700/75 shadow-[0_0_0_1px_rgb(194_65_12_/_0.12)]";
+      return "border-[#9A6A3A]";
     case "IRON":
+      return "border-[#5A5F66]";
     case "UNRANKED":
     default:
       return "border-[var(--border)]";
