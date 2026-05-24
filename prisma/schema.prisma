@@ -97,8 +97,8 @@ model UserLolStats {
 }
 
 model Auction {
-  id                         String               @id @default(cuid())
-  code                       String               @unique
+  id                         String                 @id @default(cuid())
+  code                       String                 @unique
   title                      String
   ownerId                    String
   teamCount                  Int
@@ -106,23 +106,38 @@ model Auction {
   auctionSeconds             Int
   extendSeconds              Int
   startPoints                Int
-  status                     AuctionStatus        @default(DRAFT)
+  status                     AuctionStatus          @default(DRAFT)
   currentTargetParticipantId String?
   currentBidId               String?
   currentRoundEndAt          DateTime?
   pausedAt                   DateTime?
   pausedRemainingMs          Int?
+  pauseReason                String?
   lastActivityAt             DateTime?
-  createdAt                  DateTime             @default(now())
-  updatedAt                  DateTime             @updatedAt
-  owner                      User                 @relation("AuctionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  owner                      User                   @relation("AuctionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   teams                      AuctionTeam[]
   participants               AuctionParticipant[]
   bids                       AuctionBid[]
   messages                   ChatMessage[]
   internalMatches            InternalMatch[]
   auctionSoldRecords         AuctionSoldRecord[]
-  lastSoldUserStats          UserAuctionStats[]   @relation("LastSoldAuction")
+  roundSnapshots             AuctionRoundSnapshot[]
+  lastSoldUserStats          UserAuctionStats[]     @relation("LastSoldAuction")
+}
+
+model AuctionRoundSnapshot {
+  id                  String   @id @default(cuid())
+  auctionId           String
+  roundNumber         Int
+  targetParticipantId String?
+  snapshot            Json
+  createdAt           DateTime @default(now())
+  auction             Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  @@unique([auctionId, roundNumber])
+  @@index([auctionId])
 }
 
 model AuctionParticipant {

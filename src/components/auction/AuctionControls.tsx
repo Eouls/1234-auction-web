@@ -5,8 +5,10 @@ import { useActionState, useEffect, useMemo, useRef, useState, useTransition } f
 import { useRouter } from "next/navigation";
 import {
   finalizeRound,
+  pauseAuction,
   placeBid,
   resumeAuction,
+  rollbackPreviousRound,
   startAuction,
   type AuctionActionState,
 } from "@/app/auctions/[code]/actions";
@@ -38,24 +40,13 @@ export function AuctionStartControl({
   isFinished,
 }: AuctionStartControlProps) {
   const [state, formAction, isPending] = useActionState(startAuction, initialState);
-  const [resumeState, resumeAction, isResuming] = useActionState(resumeAuction, initialState);
 
   if (isRunning) {
     return <span className="text-sm font-semibold text-cyan-200">경매 진행 중</span>;
   }
 
   if (isPaused) {
-    return (
-      <form action={resumeAction} className="flex flex-col items-start gap-2 md:items-end">
-        <input name="auctionId" type="hidden" value={auctionId} />
-        <input name="auctionCode" type="hidden" value={auctionCode} />
-        <Button disabled={disabled || !isOwner || isResuming} type="submit" variant="secondary">
-          {isResuming ? "재개 중..." : "경매 재개"}
-        </Button>
-        {resumeState.error ? <p className="text-xs text-rose-300">{resumeState.error}</p> : null}
-        {resumeState.success ? <p className="text-xs text-cyan-200">{resumeState.success}</p> : null}
-      </form>
-    );
+    return <span className="text-sm font-semibold text-amber-200">경매 일시중지</span>;
   }
 
   if (isFinished) {
@@ -79,6 +70,88 @@ export function AuctionStartControl({
       {state.error ? <p className="text-xs text-rose-300">{state.error}</p> : null}
       {state.success ? <p className="text-xs text-cyan-200">{state.success}</p> : null}
     </form>
+  );
+}
+
+type AuctionOwnerControlsProps = {
+  auctionCode: string;
+  auctionId: string;
+  canRollback: boolean;
+  isOwner: boolean;
+  isPaused: boolean;
+  isRunning: boolean;
+};
+
+export function AuctionOwnerControls({
+  auctionCode,
+  auctionId,
+  canRollback,
+  isOwner,
+  isPaused,
+  isRunning,
+}: AuctionOwnerControlsProps) {
+  const router = useRouter();
+  const [pauseState, pauseAction, isPausing] = useActionState(pauseAuction, initialState);
+  const [resumeState, resumeAction, isResuming] = useActionState(resumeAuction, initialState);
+  const [rollbackState, rollbackAction, isRollingBack] = useActionState(rollbackPreviousRound, initialState);
+
+  useEffect(() => {
+    if (!pauseState.success && !resumeState.success && !rollbackState.success) return;
+    router.refresh();
+  }, [pauseState.success, resumeState.success, rollbackState.success, router]);
+
+  if (!isOwner || (!isRunning && !isPaused)) return null;
+
+  return (
+    <Card className="p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-white">방장 경매 제어</p>
+          <p className="mt-1 text-xs text-slate-500">일시정지하거나 직전 라운드 상태로 되돌릴 수 있습니다.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isRunning ? (
+            <form action={pauseAction}>
+              <input name="auctionId" type="hidden" value={auctionId} />
+              <input name="auctionCode" type="hidden" value={auctionCode} />
+              <Button disabled={isPausing} size="sm" type="submit" variant="secondary">
+                {isPausing ? "정지 중..." : "경매 일시정지"}
+              </Button>
+            </form>
+          ) : null}
+          {isPaused ? (
+            <form action={resumeAction}>
+              <input name="auctionId" type="hidden" value={auctionId} />
+              <input name="auctionCode" type="hidden" value={auctionCode} />
+              <Button disabled={isResuming} size="sm" type="submit" variant="secondary">
+                {isResuming ? "재개 중..." : "경매 재개"}
+              </Button>
+            </form>
+          ) : null}
+          <form
+            action={rollbackAction}
+            onSubmit={(event) => {
+              const confirmed = window.confirm(
+                "직전 경매 라운드로 되돌릴까요? 해당 라운드 이후의 입찰/낙찰 상태가 되돌아갑니다.",
+              );
+              if (!confirmed) event.preventDefault();
+            }}
+          >
+            <input name="auctionId" type="hidden" value={auctionId} />
+            <input name="auctionCode" type="hidden" value={auctionCode} />
+            <Button disabled={!canRollback || isRollingBack} size="sm" type="submit" variant="danger">
+              {isRollingBack ? "되돌리는 중..." : "이전 경매로 되돌리기"}
+            </Button>
+          </form>
+        </div>
+      </div>
+      {pauseState.error ? <p className="mt-2 text-xs text-rose-300">{pauseState.error}</p> : null}
+      {resumeState.error ? <p className="mt-2 text-xs text-rose-300">{resumeState.error}</p> : null}
+      {rollbackState.error ? <p className="mt-2 text-xs text-rose-300">{rollbackState.error}</p> : null}
+      {pauseState.success ? <p className="mt-2 text-xs text-cyan-200">{pauseState.success}</p> : null}
+      {resumeState.success ? <p className="mt-2 text-xs text-cyan-200">{resumeState.success}</p> : null}
+      {rollbackState.success ? <p className="mt-2 text-xs text-cyan-200">{rollbackState.success}</p> : null}
+    </Card>
   );
 }
 

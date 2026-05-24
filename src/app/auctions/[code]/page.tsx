@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { AuctionStatus, ParticipantStatus } from "@/generated/prisma/client";
 import { AuctionBidLog } from "@/components/auction/AuctionBidLog";
 import { AuctionChatPanel } from "@/components/auction/AuctionChatPanel";
-import { AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
+import { AuctionOwnerControls, AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
 import { AuctionPresenceHeartbeat } from "@/components/auction/AuctionPresenceHeartbeat";
 import { AuctionRoomRealtime } from "@/components/auction/AuctionRoomRealtime";
@@ -120,6 +120,12 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           createdAt: "asc",
         },
       },
+      roundSnapshots: {
+        orderBy: {
+          roundNumber: "desc",
+        },
+        take: 5,
+      },
       messages: {
         orderBy: {
           createdAt: "asc",
@@ -169,6 +175,13 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   const isRunning = auction.status === AuctionStatus.RUNNING;
   const isPaused = auction.status === AuctionStatus.PAUSED;
   const isFinished = auction.status === AuctionStatus.FINISHED;
+  const canRollbackPreviousRound = auction.roundSnapshots.some(
+    (snapshot) => snapshot.targetParticipantId !== auction.currentTargetParticipantId,
+  );
+  const pauseDescription =
+    auction.pauseReason === "MANUAL"
+      ? "방장이 경매를 일시정지했습니다."
+      : "입찰 가능한 팀장이 부족해 타이머와 입찰이 멈춘 상태입니다.";
   const currentUserCaptainTeam = auction.teams.find((team) => team.captainId === currentUser.id);
   const currentUserSoldParticipant = auction.participants.find(
     (participant) =>
@@ -269,7 +282,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {isPaused
-              ? "입찰 가능한 팀장이 부족해 타이머와 입찰이 멈춘 상태입니다."
+              ? pauseDescription
               : allCaptainsSet
                 ? "각 팀장이 경매방에 입장해야 경매를 시작할 수 있습니다."
                 : "모든 팀의 팀장을 먼저 설정해주세요."}
@@ -363,7 +376,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
               <div className="rounded-md border border-amber-300/30 bg-amber-400/10 p-4">
                 <h2 className="text-lg font-bold text-amber-100">경매가 일시중지되었습니다</h2>
                 <p className="mt-2 text-sm leading-6 text-amber-100/80">
-                  입찰 가능한 팀장이 부족해 타이머와 입찰을 멈췄습니다. 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
+                  {pauseDescription} 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
                 </p>
                 <p className="mt-3 text-xs font-semibold text-amber-100/80">
                   저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
@@ -470,6 +483,15 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             isPaused={isPaused}
             isRunning={isRunning}
             pausedRemainingMs={auction.pausedRemainingMs}
+          />
+
+          <AuctionOwnerControls
+            auctionCode={auction.code}
+            auctionId={auction.id}
+            canRollback={canRollbackPreviousRound}
+            isOwner={isOwner}
+            isPaused={isPaused}
+            isRunning={isRunning}
           />
 
           <AuctionBidLog bids={bidLogItems} />
