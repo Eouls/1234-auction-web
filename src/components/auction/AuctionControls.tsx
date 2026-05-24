@@ -397,7 +397,7 @@ export function BidControls({
 
   return (
     <Card className="p-5">
-      <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.9fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(320px,1fr)_minmax(0,1.8fr)]">
         <Info
           action={
             <SoundControl
@@ -530,7 +530,7 @@ function SoundControl({
   const displayVolume = Math.round(clampVolume(volume) * 100);
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 items-center justify-end gap-2">
       <button
         aria-label={isEnabled ? "효과음 끄기" : "효과음 켜기"}
         className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
@@ -634,14 +634,14 @@ function Info({
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-slate-950/60 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="min-w-[96px] shrink-0">
+      <div className="grid min-h-[58px] grid-cols-[minmax(80px,1fr)_auto] items-center gap-4">
+        <div className="min-w-0">
           <p className="whitespace-nowrap text-xs text-slate-500">{label}</p>
           <p className={strong ? "mt-1 whitespace-nowrap text-3xl font-black leading-none text-cyan-200" : "mt-1 whitespace-nowrap text-sm font-semibold text-slate-100"}>
             {value}
           </p>
         </div>
-        {action ? <div className="ml-auto min-w-0 shrink-0">{action}</div> : null}
+        {action ? <div className="min-w-[160px] justify-self-end">{action}</div> : null}
       </div>
     </div>
   );
