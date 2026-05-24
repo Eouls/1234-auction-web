@@ -14,6 +14,8 @@ import { Button, Card, Input } from "@/components/ui";
 const initialState: AuctionActionState = {};
 const AUTO_FINALIZE_DELAY_MS = 2000;
 const BID_GRACE_PERIOD_MS = 2000;
+const DEFAULT_SOUND_VOLUME = 0.4;
+const END_SOUND_VOLUME_MULTIPLIER = 0.8;
 
 type AuctionStartControlProps = {
   auctionId: string;
@@ -100,6 +102,8 @@ export function BidControls({
   const [remainingMs, setRemainingMs] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [soundVolume, setSoundVolume] = useState(DEFAULT_SOUND_VOLUME);
+  const [isSoundSettingsLoaded, setIsSoundSettingsLoaded] = useState(false);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
   const isAutoFinalizingRef = useRef(false);
@@ -150,20 +154,25 @@ export function BidControls({
   );
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const storedValue = window.localStorage.getItem("auction-countdown-sound");
-      if (storedValue === "off") setIsSoundEnabled(false);
-      if (storedValue === "on") setIsSoundEnabled(true);
-    }, 0);
+    const storedValue = window.localStorage.getItem("auction-countdown-sound");
+    if (storedValue === "off") setIsSoundEnabled(false);
+    if (storedValue === "on") setIsSoundEnabled(true);
 
-    return () => {
-      window.clearTimeout(timeout);
-    };
+    const storedVolume = parseStoredVolume(window.localStorage.getItem("auction-countdown-volume"));
+    setSoundVolume(storedVolume);
+    setIsSoundSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
+    if (!isSoundSettingsLoaded) return;
     window.localStorage.setItem("auction-countdown-sound", isSoundEnabled ? "on" : "off");
-  }, [isSoundEnabled]);
+  }, [isSoundEnabled, isSoundSettingsLoaded]);
+
+  useEffect(() => {
+    if (!isSoundSettingsLoaded) return;
+    const volume = clampVolume(soundVolume);
+    window.localStorage.setItem("auction-countdown-volume", String(volume));
+  }, [isSoundSettingsLoaded, soundVolume]);
 
   useEffect(() => {
     if (!bidState.success) return;
@@ -213,7 +222,7 @@ export function BidControls({
         auctionId,
         remainingSeconds,
       });
-      playCountdownSound("/sounds/countdown-beep.mp3");
+      playCountdownSound("/sounds/countdown-beep.mp3", soundVolume);
     }
   }, [
     auctionId,
@@ -225,6 +234,7 @@ export function BidControls({
     isSoundEnabled,
     remainingSeconds,
     soundCycleKey,
+    soundVolume,
   ]);
 
   useEffect(() => {
@@ -256,7 +266,7 @@ export function BidControls({
 
       endSoundPlayedKeysRef.current.add(endSoundKey);
       console.log("[auction-countdown-sound] play end at zero", { auctionId, soundCycleKey });
-      playCountdownSound("/sounds/countdown-end.mp3");
+      playCountdownSound("/sounds/countdown-end.mp3", soundVolume * END_SOUND_VOLUME_MULTIPLIER);
     }, delayMs);
 
     return () => {
@@ -271,6 +281,7 @@ export function BidControls({
     isRunning,
     isSoundEnabled,
     soundCycleKey,
+    soundVolume,
   ]);
 
   useEffect(() => {
@@ -363,13 +374,19 @@ export function BidControls({
       <div className="grid gap-4 lg:grid-cols-3">
         <Info
           action={
-            <button
-              className="rounded border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/10"
-              onClick={() => setIsSoundEnabled((currentValue) => !currentValue)}
-              type="button"
-            >
-              {isSoundEnabled ? "효과음 켜짐" : "효과음 꺼짐"}
-            </button>
+            <SoundControl
+              isEnabled={isSoundEnabled}
+              onToggle={() => setIsSoundEnabled((currentValue) => !currentValue)}
+              onVolumeChange={(nextVolume) => {
+                const volume = clampVolume(nextVolume);
+                setSoundVolume(volume);
+                console.log("[auction-countdown-sound] volume changed", {
+                  auctionId,
+                  volume,
+                });
+              }}
+              volume={soundVolume}
+            />
           }
           label="남은 시간"
           value={hasMounted && isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
@@ -443,15 +460,71 @@ function getRemainingMs(date: string | null) {
   return new Date(date).getTime() - Date.now();
 }
 
-function playCountdownSound(src: string) {
+function playCountdownSound(src: string, volume: number) {
   const audio = new Audio(src);
   audio.currentTime = 0;
+  audio.volume = clampVolume(volume);
   audio.play().catch((error: unknown) => {
     console.warn("[auction-countdown-sound] play failed", {
       message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
       src,
     });
   });
+}
+
+function parseStoredVolume(value: string | null) {
+  if (!value) return DEFAULT_SOUND_VOLUME;
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) return DEFAULT_SOUND_VOLUME;
+
+  return clampVolume(parsedValue);
+}
+
+function clampVolume(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_SOUND_VOLUME;
+  return Math.min(1, Math.max(0, value));
+}
+
+function SoundControl({
+  isEnabled,
+  onToggle,
+  onVolumeChange,
+  volume,
+}: {
+  isEnabled: boolean;
+  onToggle: () => void;
+  onVolumeChange: (volume: number) => void;
+  volume: number;
+}) {
+  const displayVolume = Math.round(clampVolume(volume) * 100);
+
+  return (
+    <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center">
+      <button
+        className="rounded border border-white/10 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/10"
+        onClick={onToggle}
+        type="button"
+      >
+        {isEnabled ? "효과음 켜짐" : "효과음 꺼짐"}
+      </button>
+      <label className={`flex items-center gap-2 text-[11px] text-slate-500 ${isEnabled ? "" : "opacity-50"}`}>
+        <span className="sr-only">효과음 볼륨</span>
+        <input
+          aria-label="효과음 볼륨"
+          className="h-1.5 w-20 accent-[var(--accent)] disabled:cursor-not-allowed"
+          disabled={!isEnabled}
+          max={1}
+          min={0}
+          onChange={(event) => onVolumeChange(Number(event.target.value))}
+          step={0.05}
+          type="range"
+          value={clampVolume(volume)}
+        />
+        <span className="w-8 text-right font-semibold text-slate-400">{displayVolume}%</span>
+      </label>
+    </div>
+  );
 }
 
 function Info({
