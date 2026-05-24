@@ -298,7 +298,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           isRunning={isRunning}
         />
       </Card>
-      <div className="mt-8 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(560px,1fr)_360px] 2xl:grid-cols-[360px_minmax(640px,1fr)_400px]">
+      <div className="mt-8 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(560px,1fr)_440px] 2xl:grid-cols-[340px_minmax(620px,1fr)_520px]">
         <aside className="space-y-4 lg:col-span-2 xl:col-span-1">
           <SectionTitle title="팀 현황" description="방장만 팀장을 선택하거나 해제할 수 있습니다." />
           <CaptainSetupPanel
@@ -465,23 +465,25 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         </section>
 
         <aside className="space-y-4">
-          <Card className="p-4">
+          <Card className="p-3">
             <SectionTitle title="참가자 목록" />
-            <div className="grid max-h-[430px] grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2 overflow-y-auto pr-1">
+            <div className="grid max-h-[560px] grid-cols-2 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5">
               {sortedParticipants.map((participant) => {
                 const isCurrentTarget = participant.id === auction.currentTargetParticipantId;
                 const soldTeam = participant.teamId
                   ? auction.teams.find((team) => team.id === participant.teamId)
                   : null;
+                const peakTierBorderClass = getPeakTierBorderClass(participant.user.lolStats?.peakTier);
 
                 return (
                 <div
                   key={participant.id}
-                  className={`relative flex min-h-28 flex-col items-center justify-center rounded-md border px-2 py-2 text-center ${
+                  className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition ${
                     isCurrentTarget
-                      ? "border-amber-300/50 bg-amber-400/10 shadow-sm"
-                      : "border-white/10 bg-slate-950/60"
+                      ? `${peakTierBorderClass} bg-amber-400/10 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)]`
+                      : `${peakTierBorderClass} bg-slate-950/60`
                   }`}
+                  title={`최고티어: ${formatTier(participant.user.lolStats?.peakTier, participant.user.lolStats?.peakRank)}`}
                 >
                   <Avatar
                     name={participant.user.nickname}
@@ -493,13 +495,13 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
                       현재
                     </span>
                   ) : null}
-                  <p className="mt-1.5 w-full truncate text-xs font-bold text-white">{participant.user.nickname}</p>
-                  <div className="mt-1 flex flex-wrap justify-center gap-1">
+                  <p className="mt-1 w-full truncate text-[11px] font-bold text-white">{participant.user.nickname}</p>
+                  <div className="mt-1 flex max-w-full flex-wrap justify-center gap-0.5">
                     {participant.user.mainRole ? <RoleBadge role={participant.user.mainRole as LolRole} /> : null}
                     <ParticipantStatusBadge status={participant.status} compact />
                   </div>
                   {soldTeam ? (
-                    <p className="mt-1 w-full truncate text-[10px] font-semibold text-emerald-200">
+                    <p className="mt-0.5 w-full truncate text-[10px] font-semibold text-emerald-200">
                       {participant.soldPrice === 0 ? "자동배정" : "낙찰"} / {getTeamDisplayName(soldTeam)}
                     </p>
                   ) : null}
@@ -598,6 +600,35 @@ function formatPoint(value?: number | null) {
 
 function formatTier(tier?: string | null, rank?: string | null) {
   return [tier, rank].filter(Boolean).join(" ") || "정보 없음";
+}
+
+function getPeakTierBorderClass(peakTier?: string | null) {
+  const normalizedTier = peakTier?.trim().split(/\s+/)[0]?.toUpperCase();
+
+  switch (normalizedTier) {
+    case "CHALLENGER":
+      return "border-amber-300/80 shadow-[0_0_0_1px_rgb(252_211_77_/_0.18)]";
+    case "GRANDMASTER":
+      return "border-rose-400/75 shadow-[0_0_0_1px_rgb(251_113_133_/_0.16)]";
+    case "MASTER":
+      return "border-purple-400/75 shadow-[0_0_0_1px_rgb(192_132_252_/_0.14)]";
+    case "DIAMOND":
+      return "border-cyan-300/75 shadow-[0_0_0_1px_rgb(103_232_249_/_0.14)]";
+    case "EMERALD":
+      return "border-emerald-400/75 shadow-[0_0_0_1px_rgb(52_211_153_/_0.14)]";
+    case "PLATINUM":
+      return "border-teal-300/75 shadow-[0_0_0_1px_rgb(94_234_212_/_0.14)]";
+    case "GOLD":
+      return "border-yellow-400/75 shadow-[0_0_0_1px_rgb(250_204_21_/_0.14)]";
+    case "SILVER":
+      return "border-zinc-300/75 shadow-[0_0_0_1px_rgb(212_212_216_/_0.12)]";
+    case "BRONZE":
+      return "border-orange-700/75 shadow-[0_0_0_1px_rgb(194_65_12_/_0.12)]";
+    case "IRON":
+    case "UNRANKED":
+    default:
+      return "border-[var(--border)]";
+  }
 }
 
 function getTeamDisplayName(team?: { captain?: { nickname: string } | null; name: string } | null) {
