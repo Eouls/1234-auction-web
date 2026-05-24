@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AuctionStatus, ParticipantStatus } from "@/generated/prisma/client";
+import { AuctionBidLog } from "@/components/auction/AuctionBidLog";
 import { AuctionChatPanel } from "@/components/auction/AuctionChatPanel";
 import { AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
@@ -218,6 +219,20 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
       teamId: message.teamId,
       type: message.type,
     }));
+  const bidLogItems = auction.bids.map((bid) => {
+    const bidderTeam = auction.teams.find((team) => team.id === bid.bidderTeamId);
+    const bidderCaptain = auction.participants.find((participant) => participant.userId === bid.bidderCaptainId)?.user;
+    const target = auction.participants.find((participant) => participant.id === bid.targetParticipantId)?.user;
+
+    return {
+      amount: bid.amount,
+      bidderCaptainNickname: bidderCaptain?.nickname ?? "팀장",
+      bidderTeamName: getTeamDisplayName(bidderTeam) ?? "정보 없음",
+      id: bid.id,
+      isCurrentBid: bid.id === auction.currentBidId,
+      targetNickname: target?.nickname ?? "대상자",
+    };
+  });
 
   return (
     <AppShell contentClassName="max-w-[1720px] px-4 lg:px-6 2xl:px-8">
@@ -429,37 +444,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             isRunning={isRunning}
           />
 
-          <Card className="p-4">
-            <SectionTitle title="입찰 로그" />
-            {auction.bids.length ? (
-              <div className="max-h-[150px] space-y-2 overflow-y-auto pr-1">
-                {auction.bids.map((bid) => {
-                  const bidderTeam = auction.teams.find((team) => team.id === bid.bidderTeamId);
-                  const bidderCaptain = auction.participants.find((participant) => participant.userId === bid.bidderCaptainId)?.user;
-                  const target = auction.participants.find((participant) => participant.id === bid.targetParticipantId)?.user;
-                  const isCurrentBid = bid.id === auction.currentBidId;
-
-                  return (
-                    <div
-                      key={bid.id}
-                      className={`rounded-md border px-3 py-2 text-sm ${
-                        isCurrentBid
-                          ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-100"
-                          : "border-white/10 bg-slate-950/60 text-slate-300"
-                      }`}
-                    >
-                      {bidderCaptain?.nickname ?? "팀장"}님이 {target?.nickname ?? "대상자"}님에게 {bid.amount}P 입찰
-                      <span className="ml-2 text-xs text-slate-500">{getTeamDisplayName(bidderTeam)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="rounded-md border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-500">
-                아직 입찰 기록이 없습니다.
-              </p>
-            )}
-          </Card>
+          <AuctionBidLog bids={bidLogItems} />
 
           <AuctionChatPanel
             auctionCode={auction.code}

@@ -108,8 +108,10 @@ export function BidControls({
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
   const isAutoFinalizingRef = useRef(false);
   const playedSecondKeysRef = useRef<Set<string>>(new Set());
+  const previousBidSignatureRef = useRef<string | null>(null);
   const roundKeyRef = useRef("");
   const soundCycleKeyRef = useRef("");
+  const [isBidHighlightActive, setIsBidHighlightActive] = useState(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -183,6 +185,30 @@ export function BidControls({
     console.log("[auction-bid-client] router.refresh called", { auctionId });
     router.refresh();
   }, [auctionId, bidState.success, router]);
+
+  useEffect(() => {
+    if (!hasMounted) return;
+
+    const bidSignature = `${currentBidTeamName}:${currentBidAmount}`;
+    if (previousBidSignatureRef.current === null) {
+      previousBidSignatureRef.current = bidSignature;
+      return;
+    }
+
+    if (previousBidSignatureRef.current === bidSignature) return;
+
+    previousBidSignatureRef.current = bidSignature;
+    if (currentBidAmount <= 0) return;
+
+    setIsBidHighlightActive(true);
+    const timeout = window.setTimeout(() => {
+      setIsBidHighlightActive(false);
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [currentBidAmount, currentBidTeamName, hasMounted]);
 
   useEffect(() => {
     roundKeyRef.current = roundKey;
@@ -392,8 +418,12 @@ export function BidControls({
           value={hasMounted && isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
           strong
         />
-        <Info label="현재 최고 입찰 팀" value={currentBidTeamName} strong />
-        <Info label="현재 최고 입찰가" value={`${currentBidAmount}P`} strong />
+        <CurrentBidSummary
+          amount={currentBidAmount}
+          isHighlightActive={isBidHighlightActive}
+          isMyTeamHighest={isCurrentBidderTeam}
+          teamName={currentBidTeamName}
+        />
       </div>
       <div className="mt-5 flex flex-wrap gap-2">
         {presetAmounts.map((amount) => (
@@ -523,6 +553,64 @@ function SoundControl({
         />
         <span className="w-8 text-right font-semibold text-slate-400">{displayVolume}%</span>
       </label>
+    </div>
+  );
+}
+
+function CurrentBidSummary({
+  amount,
+  isHighlightActive,
+  isMyTeamHighest,
+  teamName,
+}: {
+  amount: number;
+  isHighlightActive: boolean;
+  isMyTeamHighest: boolean;
+  teamName: string;
+}) {
+  const hasBid = amount > 0;
+  const statusLabel = !hasBid
+    ? "아직 입찰 없음"
+    : isMyTeamHighest
+      ? "내 팀 최고 입찰 중"
+      : `${teamName} 최고 입찰 중`;
+  const toneClass = !hasBid
+    ? "border-white/10 bg-slate-950/60"
+    : isMyTeamHighest
+      ? "border-emerald-300/40 bg-emerald-400/10"
+      : "border-amber-300/50 bg-amber-400/10";
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded-md border p-3 transition-all duration-500 lg:col-span-2 ${toneClass} ${
+        isHighlightActive ? "shadow-lg shadow-amber-500/15 ring-2 ring-amber-300/60" : ""
+      }`}
+    >
+      {hasBid ? (
+        <div className="absolute inset-y-0 left-0 w-1 bg-amber-300/80" aria-hidden="true" />
+      ) : null}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold text-slate-500">현재 최고 입찰</p>
+            {isHighlightActive ? (
+              <span className="rounded-full border border-amber-300/50 bg-amber-300/20 px-2 py-0.5 text-[10px] font-black text-amber-100">
+                새 입찰
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 truncate text-lg font-black text-white sm:text-xl">{hasBid ? teamName : "입찰 전"}</p>
+          <p className={isMyTeamHighest ? "mt-1 text-xs font-semibold text-emerald-200" : "mt-1 text-xs font-semibold text-amber-200"}>
+            {statusLabel}
+          </p>
+        </div>
+        <div className="shrink-0 rounded-md border border-white/10 bg-slate-950/50 px-4 py-3 text-right">
+          <p className="text-[11px] font-semibold text-slate-500">최고 입찰가</p>
+          <p className={hasBid ? "mt-1 text-3xl font-black text-amber-100" : "mt-1 text-3xl font-black text-slate-300"}>
+            {amount.toLocaleString()}P
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
