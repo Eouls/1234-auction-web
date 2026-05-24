@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
+import type { AuctionStatus as UiAuctionStatus } from "@/types/auction";
 
 type AuctionRoomPageProps = {
   params: Promise<{ code: string }>;
@@ -166,6 +167,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   const captainPresenceItems = getCaptainPresenceItems(auction.teams, auction.participants);
   const allCaptainsPresent = allCaptainsSet && captainPresenceItems.every((item) => item.isPresent);
   const isRunning = auction.status === AuctionStatus.RUNNING;
+  const isPaused = auction.status === AuctionStatus.PAUSED;
   const isFinished = auction.status === AuctionStatus.FINISHED;
   const currentUserCaptainTeam = auction.teams.find((team) => team.captainId === currentUser.id);
   const currentUserSoldParticipant = auction.participants.find(
@@ -237,14 +239,18 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
 
   return (
     <AppShell contentClassName="max-w-[1720px] px-4 lg:px-6 2xl:px-8">
-      <AuctionPresenceHeartbeat auctionId={auction.id} enabled={isCaptainEditable} isParticipant={isParticipant} />
+      <AuctionPresenceHeartbeat
+        auctionId={auction.id}
+        enabled={!isFinished && auction.status !== AuctionStatus.CANCELED}
+        isParticipant={isParticipant}
+      />
       <AuctionRoomRealtime auctionId={auction.id} />
       <AuctionStartAutoScroll isAuctionRunning={isRunning} targetId="auction-main-panel" />
       <PageHeader
         eyebrow={`Room ${auction.code}`}
         title={auction.title}
         description="팀장을 설정한 뒤 경매를 시작할 수 있습니다. 입찰과 채팅은 다음 단계에서 연결합니다."
-        action={<StatusBadge status={auction.status === "READY" ? "WAITING" : "IN_PROGRESS"} />}
+        action={<StatusBadge status={toUiStatus(auction.status)} />}
       />
       <div className="mt-6 grid gap-4 md:grid-cols-4">
         <Info label="방 코드" value={auction.code} />
@@ -254,13 +260,19 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
       </div>
       <Card className="mt-6 flex flex-col gap-4 p-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
-          <p className={allCaptainsPresent ? "text-sm font-semibold text-cyan-200" : "text-sm font-semibold text-amber-200"}>
-            {allCaptainsPresent ? "경매 시작 준비 완료" : "팀장 입장 확인 후 경매를 시작할 수 있습니다"}
+          <p className={allCaptainsPresent && !isPaused ? "text-sm font-semibold text-cyan-200" : "text-sm font-semibold text-amber-200"}>
+            {isPaused
+              ? "경매가 일시중지되었습니다"
+              : allCaptainsPresent
+                ? "경매 시작 준비 완료"
+                : "팀장 입장 확인 후 경매를 시작할 수 있습니다"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            {allCaptainsSet
-              ? "각 팀장이 경매방에 입장해야 경매를 시작할 수 있습니다."
-              : "모든 팀의 팀장을 먼저 설정해주세요."}
+            {isPaused
+              ? "입찰 가능한 팀장이 부족해 타이머와 입찰이 멈춘 상태입니다."
+              : allCaptainsSet
+                ? "각 팀장이 경매방에 입장해야 경매를 시작할 수 있습니다."
+                : "모든 팀의 팀장을 먼저 설정해주세요."}
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {captainPresenceItems.map((item) => (
@@ -295,6 +307,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           disabled={!allCaptainsSet || !allCaptainsPresent}
           isFinished={isFinished}
           isOwner={isOwner}
+          isPaused={isPaused}
           isRunning={isRunning}
         />
       </Card>
@@ -346,7 +359,18 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
 
         <section id="auction-main-panel" className="scroll-mt-24 space-y-4">
           <Card className="p-6">
-            {isRunning && currentTarget ? (
+            {isPaused ? (
+              <div className="rounded-md border border-amber-300/30 bg-amber-400/10 p-4">
+                <h2 className="text-lg font-bold text-amber-100">경매가 일시중지되었습니다</h2>
+                <p className="mt-2 text-sm leading-6 text-amber-100/80">
+                  입찰 가능한 팀장이 부족해 타이머와 입찰을 멈췄습니다. 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
+                </p>
+                <p className="mt-3 text-xs font-semibold text-amber-100/80">
+                  저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
+                  {currentTarget ? ` · 현재 대상: ${currentTarget.nickname}` : ""}
+                </p>
+              </div>
+            ) : isRunning && currentTarget ? (
               currentTarget ? (
                 <div className="flex flex-col gap-5 lg:flex-row">
                   <Avatar
@@ -443,7 +467,9 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             isCurrentBidderTeam={isCurrentBidderTeam}
             isTeamFull={isCurrentUserTeamFull}
             isOwner={isOwner}
+            isPaused={isPaused}
             isRunning={isRunning}
+            pausedRemainingMs={auction.pausedRemainingMs}
           />
 
           <AuctionBidLog bids={bidLogItems} />
@@ -630,6 +656,18 @@ function getPeakTierBorderClass(peakTier?: string | null) {
     default:
       return "border-[var(--border)]";
   }
+}
+
+function toUiStatus(status: AuctionStatus): UiAuctionStatus {
+  if (status === AuctionStatus.FINISHED || status === AuctionStatus.CANCELED) return "ENDED";
+  if (status === AuctionStatus.PAUSED) return "PAUSED";
+  if (status === AuctionStatus.RUNNING) return "IN_PROGRESS";
+  return "WAITING";
+}
+
+function formatRemainingMs(value?: number | null) {
+  if (typeof value !== "number") return "정보 없음";
+  return `${Math.max(0, Math.ceil(value / 1000))}초`;
 }
 
 function getTeamDisplayName(team?: { captain?: { nickname: string } | null; name: string } | null) {

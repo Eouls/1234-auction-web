@@ -19,5 +19,6 @@ export const LOL_ROLE_COLORS: Record<LolRole, string> = {
 export const AUCTION_STATUS_LABELS: Record<AuctionStatus, string> = {
   WAITING: "대기중",
   IN_PROGRESS: "진행중",
+  PAUSED: "일시중지",
   ENDED: "종료",
 };

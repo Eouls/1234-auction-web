@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   finalizeRound,
   placeBid,
+  resumeAuction,
   startAuction,
   type AuctionActionState,
 } from "@/app/auctions/[code]/actions";
@@ -23,6 +24,7 @@ type AuctionStartControlProps = {
   disabled: boolean;
   isOwner: boolean;
   isRunning: boolean;
+  isPaused: boolean;
   isFinished: boolean;
 };
 
@@ -32,12 +34,28 @@ export function AuctionStartControl({
   disabled,
   isOwner,
   isRunning,
+  isPaused,
   isFinished,
 }: AuctionStartControlProps) {
   const [state, formAction, isPending] = useActionState(startAuction, initialState);
+  const [resumeState, resumeAction, isResuming] = useActionState(resumeAuction, initialState);
 
   if (isRunning) {
     return <span className="text-sm font-semibold text-cyan-200">경매 진행 중</span>;
+  }
+
+  if (isPaused) {
+    return (
+      <form action={resumeAction} className="flex flex-col items-start gap-2 md:items-end">
+        <input name="auctionId" type="hidden" value={auctionId} />
+        <input name="auctionCode" type="hidden" value={auctionCode} />
+        <Button disabled={disabled || !isOwner || isResuming} type="submit" variant="secondary">
+          {isResuming ? "재개 중..." : "경매 재개"}
+        </Button>
+        {resumeState.error ? <p className="text-xs text-rose-300">{resumeState.error}</p> : null}
+        {resumeState.success ? <p className="text-xs text-cyan-200">{resumeState.success}</p> : null}
+      </form>
+    );
   }
 
   if (isFinished) {
@@ -75,8 +93,10 @@ type BidControlProps = {
   isCurrentBidderTeam: boolean;
   isTeamFull: boolean;
   isOwner: boolean;
+  isPaused: boolean;
   isRunning: boolean;
   hasTarget: boolean;
+  pausedRemainingMs: number | null;
 };
 
 export function BidControls({
@@ -90,8 +110,10 @@ export function BidControls({
   isCurrentBidderTeam,
   isTeamFull,
   isOwner,
+  isPaused,
   isRunning,
   hasTarget,
+  pausedRemainingMs,
 }: BidControlProps) {
   const router = useRouter();
   const [bidState, bidAction, isBidding] = useActionState(placeBid, initialState);
@@ -147,6 +169,14 @@ export function BidControls({
   const isGracePeriodActive = isTimeOver && isRunning && hasTarget && !isBidGraceExpired;
   const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
+  const pausedRemainingSeconds =
+    typeof pausedRemainingMs === "number" ? Math.max(0, Math.ceil(pausedRemainingMs / 1000)) : null;
+  const remainingTimeLabel =
+    hasMounted && isRunning && hasTarget
+      ? `${Math.max(remainingSeconds, 0)}초`
+      : isPaused && pausedRemainingSeconds !== null
+        ? `${pausedRemainingSeconds}초`
+        : "-";
   const roundKey = `${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
   const soundCycleKey = `${auctionId}:${currentTargetParticipantId ?? "no-target"}:${currentRoundEndAt ?? "no-round"}`;
 
@@ -415,7 +445,7 @@ export function BidControls({
             />
           }
           label="남은 시간"
-          value={hasMounted && isRunning && hasTarget ? `${Math.max(remainingSeconds, 0)}초` : "-"}
+          value={remainingTimeLabel}
           strong
         />
         <CurrentBidSummary

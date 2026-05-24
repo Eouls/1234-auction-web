@@ -31,6 +31,7 @@ export type CaptainActionState = {
 
 const editableAuctionStatuses = new Set<string>([AuctionStatus.DRAFT, AuctionStatus.READY]);
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
+const ACTIVE_CAPTAIN_WINDOW_MS = 45 * 1000;
 const BID_GRACE_PERIOD_MS = 2000;
 
 export type AuctionActionState = CaptainActionState;
@@ -132,6 +133,9 @@ export async function startAuction(
           currentTargetParticipantId: target.id,
           currentBidId: null,
           currentRoundEndAt: new Date(Date.now() + auction.auctionSeconds * 1000),
+          lastActivityAt: new Date(),
+          pausedAt: null,
+          pausedRemainingMs: null,
         },
       });
     });
@@ -143,6 +147,90 @@ export async function startAuction(
 
   revalidatePath(`/auctions/${auctionCode}`);
   return { success: "경매를 시작했습니다." };
+}
+
+export async function resumeAuction(
+  _previousState: AuctionActionState,
+  formData: FormData,
+): Promise<AuctionActionState> {
+  const currentUser = await getCurrentUser();
+  const auctionId = stringValue(formData.get("auctionId"));
+  const auctionCode = stringValue(formData.get("auctionCode"));
+
+  if (!currentUser) {
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const auction = await tx.auction.findUnique({
+        where: { id: auctionId },
+        include: {
+          participants: true,
+          teams: {
+            include: {
+              captain: {
+                select: {
+                  nickname: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
+      if (auction.ownerId !== currentUser.id) throw new CaptainActionError("방장만 경매를 재개할 수 있습니다.");
+      if (auction.status !== AuctionStatus.PAUSED) throw new CaptainActionError("일시중지된 경매가 아닙니다.");
+      if (!auction.currentTargetParticipantId) throw new CaptainActionError("현재 경매 대상자가 없습니다.");
+
+      const now = new Date();
+      const captainPresence = getActiveCaptainPresence({
+        now,
+        participants: auction.participants,
+        teams: auction.teams,
+      });
+
+      console.log("[auction-presence] active captains checked", {
+        activeCaptainCount: captainPresence.activeCaptainCount,
+        auctionId: auction.id,
+        requiredActiveCaptainCount: captainPresence.requiredActiveCaptainCount,
+      });
+
+      if (!captainPresence.canRunAuction) {
+        throw new CaptainActionError("입찰 가능한 팀장이 부족해 경매를 재개할 수 없습니다.");
+      }
+
+      const remainingMs = Math.max(
+        auction.pausedRemainingMs ?? auction.auctionSeconds * 1000,
+        1000,
+      );
+      const updatedAuction = await tx.auction.update({
+        where: { id: auction.id },
+        data: {
+          status: AuctionStatus.RUNNING,
+          currentRoundEndAt: new Date(now.getTime() + remainingMs),
+          lastActivityAt: now,
+          pausedAt: null,
+          pausedRemainingMs: null,
+        },
+      });
+
+      console.log("[auction-pause] auction resumed", {
+        auctionId: updatedAuction.id,
+        currentRoundEndAt: updatedAuction.currentRoundEndAt?.toISOString() ?? null,
+        remainingMs,
+        status: updatedAuction.status,
+      });
+    });
+  } catch (error) {
+    if (error instanceof CaptainActionError) return { error: error.message };
+    console.error("[auction-pause] Failed to resume auction", error);
+    return { error: "경매 재개에 실패했습니다." };
+  }
+
+  revalidatePath(`/auctions/${auctionCode}`);
+  return { success: "경매를 재개했습니다." };
 }
 
 export async function placeBid(
@@ -245,6 +333,7 @@ export async function placeBid(
         data: {
           currentBidId: bid.id,
           currentRoundEndAt: nextRoundEndAt,
+          lastActivityAt: now,
         },
       });
       console.log("[auction-bid] updated auction", {
@@ -387,6 +476,9 @@ export async function finalizeRound(
             currentTargetParticipantId: null,
             currentBidId: null,
             currentRoundEndAt: null,
+            lastActivityAt: new Date(),
+            pausedAt: null,
+            pausedRemainingMs: null,
           },
         });
         console.log("[auction-finalize] updated auction", {
@@ -418,6 +510,9 @@ export async function finalizeRound(
             currentTargetParticipantId: nextTarget.id,
             currentBidId: null,
             currentRoundEndAt: new Date(Date.now() + auction.auctionSeconds * 1000),
+            lastActivityAt: new Date(),
+            pausedAt: null,
+            pausedRemainingMs: null,
           },
         });
         console.log("[auction-finalize] updated auction", {
@@ -435,6 +530,9 @@ export async function finalizeRound(
             currentTargetParticipantId: null,
             currentBidId: null,
             currentRoundEndAt: null,
+            lastActivityAt: new Date(),
+            pausedAt: null,
+            pausedRemainingMs: null,
           },
         });
         console.log("[auction-finalize] updated auction", {
@@ -1066,27 +1164,37 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
   if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
 
   try {
-    const participant = await prisma.auctionParticipant.findUnique({
-      where: {
-        auctionId_userId: {
-          auctionId,
-          userId: currentUser.id,
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const participant = await tx.auctionParticipant.findUnique({
+        where: {
+          auctionId_userId: {
+            auctionId,
+            userId: currentUser.id,
+          },
         },
-      },
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
-    if (!participant) return { noop: true, success: "참가자가 아닌 사용자는 입장 상태를 기록하지 않습니다." };
+      if (!participant) return;
 
-    await prisma.auctionParticipant.update({
-      where: {
-        id: participant.id,
-      },
-      data: {
-        lastSeenAt: new Date(),
-      },
+      await tx.auctionParticipant.update({
+        where: {
+          id: participant.id,
+        },
+        data: {
+          lastSeenAt: now,
+        },
+      });
+
+      console.log("[auction-presence] heartbeat", {
+        auctionId,
+        userId: currentUser.id,
+      });
+
+      await pauseAuctionIfCaptainsInactive(tx, auctionId, now);
     });
 
     return { success: "입장 상태를 갱신했습니다." };
@@ -1212,6 +1320,95 @@ function getMissingPresentCaptains({
 
     return isPresent ? [] : [team.captain ? `${team.captain.nickname} 팀` : team.name];
   });
+}
+
+async function pauseAuctionIfCaptainsInactive(
+  tx: Prisma.TransactionClient,
+  auctionId: string,
+  now: Date,
+) {
+  const auction = await tx.auction.findUnique({
+    where: { id: auctionId },
+    include: {
+      participants: true,
+      teams: {
+        include: {
+          captain: {
+            select: {
+              nickname: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!auction || auction.status !== AuctionStatus.RUNNING) return;
+
+  const captainPresence = getActiveCaptainPresence({
+    now,
+    participants: auction.participants,
+    teams: auction.teams,
+  });
+
+  console.log("[auction-presence] active captains checked", {
+    activeCaptainCount: captainPresence.activeCaptainCount,
+    auctionId,
+    requiredActiveCaptainCount: captainPresence.requiredActiveCaptainCount,
+  });
+
+  if (captainPresence.canRunAuction) return;
+
+  const pausedRemainingMs = Math.max(
+    auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - now.getTime() : 0,
+    0,
+  );
+  const updatedAuction = await tx.auction.update({
+    where: { id: auction.id },
+    data: {
+      status: AuctionStatus.PAUSED,
+      currentRoundEndAt: null,
+      pausedAt: now,
+      pausedRemainingMs,
+      lastActivityAt: now,
+    },
+  });
+
+  console.log("[auction-pause] auction paused", {
+    activeCaptainCount: captainPresence.activeCaptainCount,
+    auctionId: updatedAuction.id,
+    pausedAt: updatedAuction.pausedAt?.toISOString() ?? null,
+    pausedRemainingMs: updatedAuction.pausedRemainingMs,
+    requiredActiveCaptainCount: captainPresence.requiredActiveCaptainCount,
+    status: updatedAuction.status,
+  });
+}
+
+function getActiveCaptainPresence({
+  now,
+  participants,
+  teams,
+}: {
+  now: Date;
+  participants: Array<{ lastSeenAt?: Date | null; userId: string }>;
+  teams: Array<{ captain?: { nickname: string } | null; captainId: string | null; name: string }>;
+}) {
+  const captainTeams = teams.filter((team) => team.captainId);
+  const requiredActiveCaptainCount = captainTeams.length <= 1 ? captainTeams.length : 2;
+  const activeCaptainCount = captainTeams.filter((team) => {
+    const captainParticipant = participants.find((participant) => participant.userId === team.captainId);
+
+    return Boolean(
+      captainParticipant?.lastSeenAt &&
+        now.getTime() - captainParticipant.lastSeenAt.getTime() <= ACTIVE_CAPTAIN_WINDOW_MS,
+    );
+  }).length;
+
+  return {
+    activeCaptainCount,
+    canRunAuction: activeCaptainCount >= requiredActiveCaptainCount,
+    requiredActiveCaptainCount,
+  };
 }
 
 function getUserTeamId(

@@ -1,6 +1,6 @@
 export type LolRole = "TOP" | "JUNGLE" | "MID" | "ADC" | "SUPPORT";
 
-export type AuctionStatus = "WAITING" | "IN_PROGRESS" | "ENDED";
+export type AuctionStatus = "WAITING" | "IN_PROGRESS" | "PAUSED" | "ENDED";
 
 export type LolAccount = {
   id: string;

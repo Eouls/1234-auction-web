@@ -97,7 +97,8 @@ export default async function MyAuctionsPage() {
 
 function toUiStatus(status: AuctionStatus): UiAuctionStatus {
   if (status === AuctionStatus.FINISHED || status === AuctionStatus.CANCELED) return "ENDED";
-  if (status === AuctionStatus.RUNNING || status === AuctionStatus.PAUSED) return "IN_PROGRESS";
+  if (status === AuctionStatus.PAUSED) return "PAUSED";
+  if (status === AuctionStatus.RUNNING) return "IN_PROGRESS";
   return "WAITING";
 }
 

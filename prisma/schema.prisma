@@ -110,6 +110,9 @@ model Auction {
   currentTargetParticipantId String?
   currentBidId               String?
   currentRoundEndAt          DateTime?
+  pausedAt                   DateTime?
+  pausedRemainingMs          Int?
+  lastActivityAt             DateTime?
   createdAt                  DateTime             @default(now())
   updatedAt                  DateTime             @updatedAt
   owner                      User                 @relation("AuctionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
