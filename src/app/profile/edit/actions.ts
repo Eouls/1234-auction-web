@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { LolRole, Prisma } from "@/generated/prisma/client";
+import { syncDiscordProfileFromAuthUser } from "@/lib/auth/onboarding";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -49,6 +50,8 @@ export async function updateProfile(
   if (!user) {
     return { error: "사용자 정보를 찾을 수 없습니다. 온보딩을 먼저 완료해주세요." };
   }
+
+  await syncDiscordProfileFromAuthUser(authUser);
 
   const nickname = stringValue(formData.get("nickname"));
   const bio = stringValue(formData.get("bio"));

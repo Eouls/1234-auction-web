@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ProfileSummary } from "@/components/profile/ProfileSummary";
 import { RiotStatsRefreshButton } from "@/components/profile/RiotStatsRefreshButton";
 import { Button, PageHeader } from "@/components/ui";
+import { syncDiscordProfileFromAuthUser } from "@/lib/auth/onboarding";
 import { prisma } from "@/lib/prisma";
 import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
@@ -21,6 +22,8 @@ export default async function ProfilePage() {
   if (!authUser) {
     redirect("/auth/login");
   }
+
+  await syncDiscordProfileFromAuthUser(authUser);
 
   const user = await prisma.user.findUnique({
     where: {

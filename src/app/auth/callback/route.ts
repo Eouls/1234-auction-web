@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { syncDiscordProfileFromAuthUser } from "@/lib/auth/onboarding";
 import { prisma } from "@/lib/prisma";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
@@ -52,6 +53,10 @@ export async function GET(request: NextRequest) {
       id: true,
     },
   });
+
+  if (existingUser) {
+    await syncDiscordProfileFromAuthUser(authUser);
+  }
 
   const redirectPath = existingUser ? "/home" : "/onboarding";
   const redirectResponse = NextResponse.redirect(new URL(redirectPath, origin));

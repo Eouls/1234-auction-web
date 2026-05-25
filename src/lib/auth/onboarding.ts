@@ -1,4 +1,5 @@
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 
 type MetadataValue = string | number | boolean | null | undefined;
 type Metadata = Record<string, MetadataValue>;
@@ -50,4 +51,74 @@ export function getDiscordProfileFromAuthUser(authUser: SupabaseUser) {
       identityData.picture,
     ),
   };
+}
+
+export function getDiscordAvatarUrlFromSupabaseUser(authUser: SupabaseUser) {
+  return getDiscordProfileFromAuthUser(authUser).discordAvatarUrl;
+}
+
+export async function syncDiscordProfileFromAuthUser(authUser: SupabaseUser) {
+  try {
+    const discordProfile = getDiscordProfileFromAuthUser(authUser);
+
+    const user = await prisma.user.findUnique({
+      where: {
+        authUserId: authUser.id,
+      },
+      select: {
+        customProfileImageUrl: true,
+        discordAvatarUrl: true,
+        discordUsername: true,
+        id: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    const data: {
+      discordAvatarUrl?: string;
+      discordUsername?: string | null;
+    } = {};
+
+    if (discordProfile.discordAvatarUrl && discordProfile.discordAvatarUrl !== user.discordAvatarUrl) {
+      data.discordAvatarUrl = discordProfile.discordAvatarUrl;
+    }
+
+    if (discordProfile.discordUsername && discordProfile.discordUsername !== user.discordUsername) {
+      data.discordUsername = discordProfile.discordUsername;
+    }
+
+    const updated = Object.keys(data).length > 0;
+
+    if (updated) {
+      await prisma.user.update({
+        where: {
+          id: user.id,
+        },
+        data,
+      });
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[auth] discord avatar sync", {
+        hasCustomProfileImage: Boolean(user.customProfileImageUrl),
+        newDiscordAvatarUrlExists: Boolean(discordProfile.discordAvatarUrl),
+        oldDiscordAvatarUrlExists: Boolean(user.discordAvatarUrl),
+        updated,
+        userId: user.id,
+      });
+    }
+
+    return {
+      discordAvatarUrl: data.discordAvatarUrl ?? user.discordAvatarUrl,
+      updated,
+    };
+  } catch (error) {
+    console.warn("[auth] discord avatar sync failed", {
+      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+    });
+    return null;
+  }
 }

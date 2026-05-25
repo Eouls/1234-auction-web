@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { ProfileEditForm } from "@/components/profile/ProfileEditForm";
 import { PageHeader } from "@/components/ui";
+import { syncDiscordProfileFromAuthUser } from "@/lib/auth/onboarding";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import type { LolRole } from "@/types/auction";
@@ -15,6 +16,8 @@ export default async function ProfileEditPage() {
   if (!authUser) {
     redirect("/auth/login");
   }
+
+  await syncDiscordProfileFromAuthUser(authUser);
 
   const user = await prisma.user.findUnique({
     where: {
