@@ -17,6 +17,7 @@ import {
   SectionTitle,
   StatusBadge,
 } from "@/components/ui";
+import { errorToLogMetadata, logAppError } from "@/lib/logging/app-log";
 import { prisma } from "@/lib/prisma";
 import { resolveChampionIcons } from "@/lib/riot/champions";
 import { createClient } from "@/lib/supabase/server";
@@ -75,67 +76,83 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
     redirect("/onboarding");
   }
 
-  const auction = await prisma.auction.findUnique({
-    where: {
-      code,
-    },
-    include: {
-      teams: {
-        orderBy: {
-          name: "asc",
+  const auction = await (async () => {
+    try {
+      return await prisma.auction.findUnique({
+        where: {
+          code,
         },
         include: {
-          captain: true,
-          members: {
-            include: {
-              user: true,
+          teams: {
+            orderBy: {
+              name: "asc",
             },
-          },
-        },
-      },
-      participants: {
-        orderBy: {
-          createdAt: "asc",
-        },
-        include: {
-          user: {
             include: {
-              lolAccounts: {
-                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-              },
-              lolStats: true,
-              auctionStats: {
-                select: {
-                  averageSoldPrice: true,
-                  lastSoldPrice: true,
-                  soldCount: true,
+              captain: true,
+              members: {
+                include: {
+                  user: true,
                 },
               },
             },
           },
+          participants: {
+            orderBy: {
+              createdAt: "asc",
+            },
+            include: {
+              user: {
+                include: {
+                  lolAccounts: {
+                    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                  },
+                  lolStats: true,
+                  auctionStats: {
+                    select: {
+                      averageSoldPrice: true,
+                      lastSoldPrice: true,
+                      soldCount: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          bids: {
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+          roundSnapshots: {
+            orderBy: {
+              roundNumber: "desc",
+            },
+            take: 5,
+          },
+          messages: {
+            orderBy: {
+              createdAt: "asc",
+            },
+            include: {
+              sender: true,
+            },
+          },
         },
-      },
-      bids: {
-        orderBy: {
-          createdAt: "asc",
+      });
+    } catch (error) {
+      console.error("[auction-page] Failed to load auction", error);
+      await logAppError({
+        message: "Failed to load auction room",
+        metadata: {
+          code,
+          error: errorToLogMetadata(error),
         },
-      },
-      roundSnapshots: {
-        orderBy: {
-          roundNumber: "desc",
-        },
-        take: 5,
-      },
-      messages: {
-        orderBy: {
-          createdAt: "asc",
-        },
-        include: {
-          sender: true,
-        },
-      },
-    },
-  });
+        scope: "auction-page",
+        userId: currentUser.id,
+      });
+      throw error;
+    }
+  })();
 
   if (!auction) {
     notFound();

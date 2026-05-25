@@ -199,6 +199,22 @@ model ChatMessage {
   sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 }
 
+model AppLog {
+  id        String   @id @default(cuid())
+  level     String
+  scope     String
+  message   String
+  auctionId String?
+  userId    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([scope])
+  @@index([auctionId])
+  @@index([createdAt])
+}
+
 model InternalMatch {
   id               String                @id @default(cuid())
   auctionId        String

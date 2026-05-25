@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { AuctionStatus, ChatType, ParticipantStatus } from "@/generated/prisma/client";
 import type { Prisma } from "@/generated/prisma/client";
+import { errorToLogMetadata, logAppError } from "@/lib/logging/app-log";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
@@ -171,6 +172,15 @@ export async function startAuction(
   } catch (error) {
     if (error instanceof CaptainActionError) return { error: error.message };
     console.error("[auction-start] Failed", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to start auction",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-start",
+      userId: currentUser.id,
+    });
     return { error: "경매 시작 실패" };
   }
 
@@ -260,6 +270,15 @@ export async function resumeAuction(
   } catch (error) {
     if (error instanceof CaptainActionError) return { error: error.message };
     console.error("[auction-pause] Failed to resume auction", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to resume auction",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-pause",
+      userId: currentUser.id,
+    });
     return { error: "경매 재개에 실패했습니다." };
   }
 
@@ -322,6 +341,15 @@ export async function pauseAuction(
   } catch (error) {
     if (error instanceof CaptainActionError) return { error: error.message };
     console.error("[auction-pause] Failed to pause auction", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to pause auction",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-pause",
+      userId: currentUser.id,
+    });
     return { error: "경매 일시정지에 실패했습니다." };
   }
 
@@ -448,6 +476,16 @@ export async function placeBid(
   } catch (error) {
     if (error instanceof CaptainActionError) return { error: error.message };
     console.error("[auction-bid] Failed", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to place auction bid",
+      metadata: {
+        amount,
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-bid",
+      userId: currentUser.id,
+    });
     return { error: "입찰에 실패했습니다." };
   }
 
@@ -662,6 +700,18 @@ export async function finalizeRound(
         now: new Date().toISOString(),
         isOwner: debugContext.isOwner,
       });
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction finalize validation failed",
+        metadata: {
+          debugContext,
+          error: errorToLogMetadata(error),
+          forceFinalize,
+        },
+        scope: "auction-finalize",
+        userId: currentUser.id,
+      });
       return { error: error.message, reason: "VALIDATION_ERROR" };
     }
     console.error("[auction-finalize] Failed", {
@@ -673,6 +723,17 @@ export async function finalizeRound(
       now: new Date().toISOString(),
       isOwner: debugContext.isOwner,
       error,
+    });
+    await logAppError({
+      auctionId,
+      message: "Failed to finalize auction round",
+      metadata: {
+        debugContext,
+        error: errorToLogMetadata(error),
+        forceFinalize,
+      },
+      scope: "auction-finalize",
+      userId: currentUser.id,
     });
     return { error: "라운드 종료 처리 실패" };
   }
@@ -830,6 +891,15 @@ export async function rollbackPreviousRound(
   } catch (error) {
     if (error instanceof CaptainActionError) return { error: error.message };
     console.error("[auction-rollback] Failed", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to rollback auction round",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-rollback",
+      userId: currentUser.id,
+    });
     return { error: "이전 경매로 되돌리기에 실패했습니다." };
   }
 
@@ -999,9 +1069,34 @@ async function recordAuctionSoldStats(
         participantId,
         userId,
       });
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Sold record already exists, skip stats update",
+        metadata: {
+          error: errorToLogMetadata(error),
+          participantId,
+          soldPrice,
+          teamId,
+        },
+        scope: "auction-stats",
+        userId,
+      });
       return;
     }
 
+    await logAppError({
+      auctionId,
+      message: "Failed to create auction sold record",
+      metadata: {
+        error: errorToLogMetadata(error),
+        participantId,
+        soldPrice,
+        teamId,
+      },
+      scope: "auction-stats",
+      userId,
+    });
     throw error;
   }
 
@@ -1568,6 +1663,15 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
     return { success: "입장 상태를 갱신했습니다." };
   } catch (error) {
     console.error("[auction-presence] Failed to record presence", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to record auction presence or auto pause",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-presence",
+      userId: currentUser.id,
+    });
     return { error: "입장 상태 갱신에 실패했습니다." };
   }
 }
@@ -1606,6 +1710,15 @@ async function getFinalizeDebugContext(auctionId: string, currentUserId: string)
     };
   } catch (error) {
     console.error("[auction-finalize] Failed to load debug context", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to load finalize debug context",
+      metadata: {
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-finalize",
+      userId: currentUserId,
+    });
     return {
       currentTargetParticipantId: null,
       currentRoundEndAt: null,
