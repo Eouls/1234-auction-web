@@ -1462,6 +1462,171 @@ export async function updateTeamPoints(
   return { success: "팀 포인트를 수정했습니다." };
 }
 
+export async function addAuctionParticipantBeforeStart({
+  auctionCode,
+  auctionId,
+  nickname,
+}: {
+  auctionCode: string;
+  auctionId: string;
+  nickname: string;
+}): Promise<CaptainActionState> {
+  const currentUser = await getCurrentUser();
+  const normalizedNickname = nickname.trim();
+
+  if (!currentUser) {
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  }
+
+  if (!auctionId || !auctionCode) {
+    return { error: "참가자 추가에 필요한 정보가 부족합니다." };
+  }
+
+  if (!normalizedNickname) {
+    return { error: "추가할 참가자 닉네임을 입력해주세요." };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const auction = await tx.auction.findUnique({
+        where: { id: auctionId },
+        include: {
+          participants: true,
+        },
+      });
+
+      if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
+      if (auction.ownerId !== currentUser.id) {
+        throw new CaptainActionError("방장만 참가자를 추가할 수 있습니다.");
+      }
+      if (!editableAuctionStatuses.has(auction.status)) {
+        throw new CaptainActionError("경매 시작 후에는 참가자를 추가할 수 없습니다.");
+      }
+
+      const maxParticipantCount = auction.teamCount * auction.membersPerTeam;
+      if (auction.participants.length >= maxParticipantCount) {
+        throw new CaptainActionError(`참가자 수가 초과되었습니다. ${maxParticipantCount}명까지만 등록할 수 있습니다.`);
+      }
+
+      const user = await tx.user.findUnique({
+        where: { nickname: normalizedNickname },
+        select: { id: true },
+      });
+
+      if (!user) {
+        throw new CaptainActionError("해당 닉네임의 사용자를 찾을 수 없습니다.");
+      }
+
+      if (auction.participants.some((participant) => participant.userId === user.id)) {
+        throw new CaptainActionError("이미 등록된 참가자입니다.");
+      }
+
+      const shouldAppendAuctionOrder = auction.participants.some((participant) => participant.auctionOrder !== null);
+      const nextAuctionOrder = shouldAppendAuctionOrder
+        ? Math.max(...auction.participants.map((participant) => participant.auctionOrder ?? 0), 0) + 1
+        : null;
+
+      await tx.auctionParticipant.create({
+        data: {
+          auctionId: auction.id,
+          auctionOrder: nextAuctionOrder,
+          status: ParticipantStatus.WAITING,
+          userId: user.id,
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof CaptainActionError) return { error: error.message };
+    if (isPrismaUniqueConstraintError(error)) {
+      return { error: "이미 등록된 참가자입니다." };
+    }
+
+    console.error("[auction-participant] Failed to add participant", error);
+    return { error: "참가자 추가에 실패했습니다." };
+  }
+
+  revalidatePath(`/auctions/${auctionCode}`);
+  return { success: "참가자를 추가했습니다." };
+}
+
+export async function removeAuctionParticipantBeforeStart({
+  auctionCode,
+  auctionId,
+  participantId,
+}: {
+  auctionCode: string;
+  auctionId: string;
+  participantId: string;
+}): Promise<CaptainActionState> {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  }
+
+  if (!auctionId || !auctionCode || !participantId) {
+    return { error: "참가자 제거에 필요한 정보가 부족합니다." };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const auction = await tx.auction.findUnique({
+        where: { id: auctionId },
+        include: {
+          participants: true,
+          teams: true,
+        },
+      });
+
+      if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
+      if (auction.ownerId !== currentUser.id) {
+        throw new CaptainActionError("방장만 참가자를 제거할 수 있습니다.");
+      }
+      if (!editableAuctionStatuses.has(auction.status)) {
+        throw new CaptainActionError("경매 시작 후에는 참가자를 제거할 수 없습니다.");
+      }
+
+      const participant = auction.participants.find((auctionParticipant) => auctionParticipant.id === participantId);
+      if (!participant) {
+        throw new CaptainActionError("경매에 등록된 참가자를 찾을 수 없습니다.");
+      }
+      if (auction.currentTargetParticipantId === participant.id) {
+        throw new CaptainActionError("현재 경매 대상자는 제거할 수 없습니다.");
+      }
+      if (participant.teamId || participant.soldPrice !== null || participant.status === ParticipantStatus.SOLD) {
+        throw new CaptainActionError("이미 팀에 배정된 참가자는 제거할 수 없습니다.");
+      }
+      if (participant.status === ParticipantStatus.BIDDING) {
+        throw new CaptainActionError("입찰 중인 참가자는 제거할 수 없습니다.");
+      }
+
+      await tx.auctionTeam.updateMany({
+        where: {
+          auctionId: auction.id,
+          captainId: participant.userId,
+        },
+        data: {
+          captainId: null,
+        },
+      });
+
+      await tx.auctionParticipant.delete({
+        where: {
+          id: participant.id,
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof CaptainActionError) return { error: error.message };
+
+    console.error("[auction-participant] Failed to remove participant", error);
+    return { error: "참가자 제거에 실패했습니다." };
+  }
+
+  revalidatePath(`/auctions/${auctionCode}`);
+  return { success: "참가자를 제거했습니다." };
+}
+
 export async function sendChatMessage(
   _previousState: ChatActionState,
   formData: FormData,

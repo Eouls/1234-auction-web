@@ -4,6 +4,7 @@ import { AuctionBidLog } from "@/components/auction/AuctionBidLog";
 import { AuctionChatPanel } from "@/components/auction/AuctionChatPanel";
 import { AuctionOwnerControls, AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
 import { AuctionParticipantGrid } from "@/components/auction/AuctionParticipantGrid";
+import { AuctionParticipantManager } from "@/components/auction/AuctionParticipantManager";
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
 import { AuctionPresenceHeartbeat } from "@/components/auction/AuctionPresenceHeartbeat";
 import { AuctionRoomRealtime } from "@/components/auction/AuctionRoomRealtime";
@@ -172,6 +173,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   const requiredParticipantCount = auction.teamCount * auction.membersPerTeam;
   const isCaptainEditable = auction.status === AuctionStatus.DRAFT || auction.status === AuctionStatus.READY;
   const allCaptainsSet = auction.teams.every((team) => Boolean(team.captainId));
+  const captainUserIds = new Set(auction.teams.map((team) => team.captainId).filter(Boolean));
   const captainPresenceItems = getCaptainPresenceItems(auction.teams, auction.participants);
   const allCaptainsPresent = allCaptainsSet && captainPresenceItems.every((item) => item.isPresent);
   const isRunning = auction.status === AuctionStatus.RUNNING;
@@ -530,6 +532,24 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         </section>
 
         <aside className="space-y-4">
+          {isOwner ? (
+            <AuctionParticipantManager
+              auctionCode={auction.code}
+              auctionId={auction.id}
+              canManage={isOwner}
+              isEditable={isCaptainEditable}
+              maxParticipantCount={requiredParticipantCount}
+              participants={sortedParticipants.map((participant) => ({
+                id: participant.id,
+                imageUrl: participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl,
+                isCaptain: captainUserIds.has(participant.userId),
+                mainRole: participant.user.mainRole as LolRole | null,
+                nickname: participant.user.nickname,
+                status: participant.status,
+                subRole: participant.user.subRole as LolRole | null,
+              }))}
+            />
+          ) : null}
           <Card className="p-3">
             <SectionTitle title="참가자 목록" />
             <AuctionParticipantGrid
