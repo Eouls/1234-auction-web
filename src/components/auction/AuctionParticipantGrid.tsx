@@ -116,42 +116,44 @@ export function AuctionParticipantGrid({ participants }: { participants: Partici
   return (
     <>
       <div className="grid max-h-[560px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">
-        {participants.map((participant) => (
-          <button
-            aria-label={`${participant.nickname} 상세 정보 보기`}
-            className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] ${
-              participant.isCurrentTarget
-                ? `${participant.tierBorderClass} bg-amber-50 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)] dark:bg-amber-400/10`
-                : `${participant.tierBorderClass} bg-white dark:bg-slate-950/60`
-            }`}
-            key={participant.id}
-            onBlur={hideOverlay}
-            onClick={(event) => showOverlay(participant, event.currentTarget)}
-            onFocus={(event) => showOverlay(participant, event.currentTarget)}
-            onMouseEnter={(event) => showOverlay(participant, event.currentTarget)}
-            onMouseLeave={hideOverlay}
-            type="button"
-          >
-            <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
-            {participant.isCurrentTarget ? (
-              <span className="absolute left-1 top-1 rounded bg-amber-300 px-1.5 py-0.5 text-[10px] font-black text-slate-950">
-                현재
-              </span>
-            ) : null}
-            <p className="mt-1 w-full truncate text-[11px] font-bold text-[var(--foreground)]">
-              {participant.nickname}
-            </p>
-            <div className="mt-1 flex max-w-full flex-wrap justify-center gap-0.5">
-              {participant.mainRole ? <RoleBadge role={participant.mainRole} /> : null}
-              <ParticipantStatusBadge compact isCurrentTarget={participant.isCurrentTarget} status={participant.status} />
-            </div>
-            {participant.soldLabel ? (
-              <p className="mt-0.5 w-full truncate text-[10px] font-semibold text-emerald-700 dark:text-emerald-200">
-                {participant.soldLabel}
+        {participants.map((participant) => {
+          const backgroundClass = participant.isCurrentTarget
+            ? "bg-amber-50 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)] dark:bg-amber-400/10"
+            : "bg-white dark:bg-slate-950/60";
+
+          return (
+            <button
+              aria-label={`${participant.nickname} 상세 정보 보기`}
+              className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] ${participant.tierBorderClass} ${backgroundClass}`}
+              key={participant.id}
+              onBlur={hideOverlay}
+              onClick={(event) => showOverlay(participant, event.currentTarget)}
+              onFocus={(event) => showOverlay(participant, event.currentTarget)}
+              onMouseEnter={(event) => showOverlay(participant, event.currentTarget)}
+              onMouseLeave={hideOverlay}
+              type="button"
+            >
+              <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
+              {participant.isCurrentTarget ? (
+                <span className="absolute left-1 top-1 rounded bg-amber-300 px-1.5 py-0.5 text-[10px] font-black text-slate-950">
+                  현재
+                </span>
+              ) : null}
+              <p className="mt-1 w-full truncate text-[11px] font-bold text-[var(--foreground)]">
+                {participant.nickname}
               </p>
-            ) : null}
-          </button>
-        ))}
+              <div className="mt-1 flex max-w-full flex-wrap justify-center gap-0.5">
+                {participant.mainRole ? <RoleBadge role={participant.mainRole} /> : null}
+                <ParticipantStatusBadge compact isCurrentTarget={participant.isCurrentTarget} status={participant.status} />
+              </div>
+              {participant.soldLabel ? (
+                <p className="mt-0.5 w-full truncate text-[10px] font-semibold text-emerald-700 dark:text-emerald-200">
+                  {participant.soldLabel}
+                </p>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
       {activeOverlay ? (
