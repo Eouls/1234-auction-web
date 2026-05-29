@@ -532,26 +532,28 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         </section>
 
         <aside className="space-y-4">
-          {isOwner ? (
-            <AuctionParticipantManager
-              auctionCode={auction.code}
-              auctionId={auction.id}
-              canManage={isOwner}
-              isEditable={isCaptainEditable}
-              maxParticipantCount={requiredParticipantCount}
-              participants={sortedParticipants.map((participant) => ({
-                id: participant.id,
-                imageUrl: participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl,
-                isCaptain: captainUserIds.has(participant.userId),
-                mainRole: participant.user.mainRole as LolRole | null,
-                nickname: participant.user.nickname,
-                status: participant.status,
-                subRole: participant.user.subRole as LolRole | null,
-              }))}
-            />
-          ) : null}
           <Card className="p-3">
-            <SectionTitle title="참가자 목록" />
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <SectionTitle title="참가자 목록" />
+              {isOwner ? (
+                <AuctionParticipantManager
+                  auctionCode={auction.code}
+                  auctionId={auction.id}
+                  canManage={isOwner}
+                  isEditable={isCaptainEditable}
+                  maxParticipantCount={requiredParticipantCount}
+                  participants={sortedParticipants.map((participant) => ({
+                    id: participant.id,
+                    imageUrl: participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl,
+                    isCaptain: captainUserIds.has(participant.userId),
+                    mainRole: participant.user.mainRole as LolRole | null,
+                    nickname: participant.user.nickname,
+                    status: participant.status,
+                    subRole: participant.user.subRole as LolRole | null,
+                  }))}
+                />
+              ) : null}
+            </div>
             <AuctionParticipantGrid
               participants={sortedParticipants.map((participant) => {
                 const isCurrentTarget = participant.id === auction.currentTargetParticipantId;

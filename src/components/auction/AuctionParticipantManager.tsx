@@ -6,7 +6,7 @@ import {
   addAuctionParticipantBeforeStart,
   removeAuctionParticipantBeforeStart,
 } from "@/app/auctions/[code]/actions";
-import { Avatar, Button, Card, Input, RoleBadge, SectionTitle } from "@/components/ui";
+import { Avatar, Button, Input, RoleBadge } from "@/components/ui";
 import type { LolRole } from "@/types/auction";
 
 type ManageableParticipant = {
@@ -37,6 +37,7 @@ export function AuctionParticipantManager({
   participants,
 }: AuctionParticipantManagerProps) {
   const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
   const [nickname, setNickname] = useState("");
   const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -130,91 +131,130 @@ export function AuctionParticipantManager({
   }
 
   return (
-    <Card className="p-3">
-      <SectionTitle
-        description={
-          isEditable
-            ? `경매 시작 전 참가자를 수정할 수 있습니다. 현재 ${participants.length}/${maxParticipantCount}명`
-            : "경매 시작 후에는 참가자를 수정할 수 없습니다."
-        }
-        title="참가자 관리"
-      />
-      {isEditable ? (
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <Input
-            className="h-9 text-sm"
-            disabled={isPending || isFull}
-            onChange={(event) => setNickname(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                handleAddParticipant();
-              }
-            }}
-            placeholder="닉네임 정확히 입력"
-            ref={inputRef}
-            value={nickname}
-          />
-          <Button
-            className="h-9 whitespace-nowrap px-3 text-sm"
-            disabled={isPending || isFull}
-            onClick={handleAddParticipant}
-            type="button"
-            variant="secondary"
-          >
-            {isPending ? "처리 중..." : "추가"}
-          </Button>
-        </div>
-      ) : null}
-      {message ? (
-        <p
-          className={`mt-2 rounded-md border px-2.5 py-2 text-xs ${
-            message.type === "error"
-              ? "border-rose-300/30 bg-rose-500/10 text-rose-700 dark:text-rose-200"
-              : "border-cyan-300/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
-          }`}
+    <>
+      <Button className="h-8 px-2.5 text-xs" onClick={() => setIsOpen(true)} type="button" variant="secondary">
+        참가자 관리
+      </Button>
+
+      {isOpen ? (
+        <div
+          aria-labelledby="participant-manager-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6"
+          role="dialog"
         >
-          {message.text}
-        </p>
-      ) : null}
-      {isFull && isEditable ? (
-        <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">팀 정원이 모두 채워져 참가자를 더 추가할 수 없습니다.</p>
-      ) : null}
-      <div className="mt-3 space-y-2">
-        {participants.map((participant) => (
-          <div
-            className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-white px-2.5 py-2 text-sm dark:bg-slate-950/60"
-            key={participant.id}
-          >
-            <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <p className="truncate font-semibold text-[var(--foreground)]">{participant.nickname}</p>
-                {participant.isCaptain ? (
-                  <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-200">
-                    팀장
-                  </span>
-                ) : null}
+          <button
+            aria-label="참가자 관리 닫기"
+            className="absolute inset-0 cursor-default"
+            onClick={() => setIsOpen(false)}
+            type="button"
+          />
+          <div className="relative max-h-[min(720px,calc(100vh-48px))] w-full max-w-xl overflow-hidden rounded-lg border border-[var(--border)] bg-white shadow-xl shadow-black/20 dark:bg-slate-950">
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-[var(--foreground)]" id="participant-manager-title">
+                  참가자 관리
+                </h2>
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                  {isEditable
+                    ? `경매 시작 전 참가자를 추가하거나 제거할 수 있습니다. 현재 ${participants.length}/${maxParticipantCount}명`
+                    : "경매 시작 후에는 참가자를 수정할 수 없습니다."}
+                </p>
               </div>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {participant.mainRole ? <RoleBadge role={participant.mainRole} /> : null}
-                {participant.subRole ? <RoleBadge role={participant.subRole} /> : null}
+              <Button className="h-8 px-2 text-xs" onClick={() => setIsOpen(false)} type="button" variant="ghost">
+                닫기
+              </Button>
+            </div>
+
+            <div className="max-h-[calc(100vh-180px)] overflow-y-auto px-5 py-4">
+              {isEditable ? (
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <Input
+                    className="h-9 text-sm"
+                    disabled={isPending || isFull}
+                    onChange={(event) => setNickname(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleAddParticipant();
+                      }
+                    }}
+                    placeholder="닉네임 정확히 입력"
+                    ref={inputRef}
+                    value={nickname}
+                  />
+                  <Button
+                    className="h-9 whitespace-nowrap px-3 text-sm"
+                    disabled={isPending || isFull}
+                    onClick={handleAddParticipant}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {isPending ? "처리 중..." : "추가"}
+                  </Button>
+                </div>
+              ) : (
+                <p className="rounded-md border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  경매 시작 후에는 참가자를 수정할 수 없습니다.
+                </p>
+              )}
+
+              {message ? (
+                <p
+                  className={`mt-2 rounded-md border px-2.5 py-2 text-xs ${
+                    message.type === "error"
+                      ? "border-rose-300/30 bg-rose-500/10 text-rose-700 dark:text-rose-200"
+                      : "border-cyan-300/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
+                  }`}
+                >
+                  {message.text}
+                </p>
+              ) : null}
+              {isFull && isEditable ? (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
+                  팀 정원이 모두 채워져 참가자를 더 추가할 수 없습니다.
+                </p>
+              ) : null}
+
+              <div className="mt-4 space-y-2">
+                {participants.map((participant) => (
+                  <div
+                    className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-neutral-50 px-2.5 py-2 text-sm transition hover:bg-white dark:bg-slate-950/60 dark:hover:bg-slate-900/75"
+                    key={participant.id}
+                  >
+                    <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <p className="truncate font-semibold text-[var(--foreground)]">{participant.nickname}</p>
+                        {participant.isCaptain ? (
+                          <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-200">
+                            팀장
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {participant.mainRole ? <RoleBadge role={participant.mainRole} /> : null}
+                        {participant.subRole ? <RoleBadge role={participant.subRole} /> : null}
+                      </div>
+                    </div>
+                    {isEditable ? (
+                      <Button
+                        className="h-8 px-2 text-xs"
+                        disabled={isPending}
+                        onClick={() => handleRemoveParticipant(participant)}
+                        type="button"
+                        variant="danger"
+                      >
+                        제거
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </div>
-            {isEditable ? (
-              <Button
-                className="h-8 px-2 text-xs"
-                disabled={isPending}
-                onClick={() => handleRemoveParticipant(participant)}
-                type="button"
-                variant="danger"
-              >
-                제거
-              </Button>
-            ) : null}
           </div>
-        ))}
-      </div>
-    </Card>
+        </div>
+      ) : null}
+    </>
   );
 }
