@@ -121,8 +121,8 @@ export function AuctionParticipantGrid({ participants }: { participants: Partici
             aria-label={`${participant.nickname} 상세 정보 보기`}
             className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 hover:bg-[var(--surface-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] ${
               participant.isCurrentTarget
-                ? `${participant.tierBorderClass} bg-amber-400/10 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)]`
-                : `${participant.tierBorderClass} bg-[var(--card-muted)] dark:bg-slate-950/60`
+                ? `${participant.tierBorderClass} bg-amber-50 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)] dark:bg-amber-400/10`
+                : `${participant.tierBorderClass} bg-white dark:bg-slate-950/60`
             }`}
             key={participant.id}
             onBlur={hideOverlay}
