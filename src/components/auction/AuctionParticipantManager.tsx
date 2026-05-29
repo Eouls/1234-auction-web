@@ -149,7 +149,7 @@ export function AuctionParticipantManager({
             onClick={() => setIsOpen(false)}
             type="button"
           />
-          <div className="relative max-h-[min(720px,calc(100vh-48px))] w-full max-w-xl overflow-hidden rounded-lg border border-[var(--border)] bg-white shadow-xl shadow-black/20 dark:bg-slate-950">
+          <div className="relative max-h-[min(720px,calc(100vh-48px))] w-full max-w-xl overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-xl shadow-[var(--shadow)]">
             <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-base font-bold text-[var(--foreground)]" id="participant-manager-title">
@@ -170,7 +170,7 @@ export function AuctionParticipantManager({
               {isEditable ? (
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Input
-                    className="h-9 text-sm"
+                    className="h-9 bg-[var(--background)] text-sm"
                     disabled={isPending || isFull}
                     onChange={(event) => setNickname(event.target.value)}
                     onKeyDown={(event) => {
@@ -194,7 +194,7 @@ export function AuctionParticipantManager({
                   </Button>
                 </div>
               ) : (
-                <p className="rounded-md border border-amber-300/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+                <p className="rounded-md border border-[color-mix(in_srgb,var(--warning)_32%,transparent)] bg-[var(--warning-soft)] px-3 py-2 text-sm font-semibold text-[var(--warning)]">
                   경매 시작 후에는 참가자를 수정할 수 없습니다.
                 </p>
               )}
@@ -203,15 +203,15 @@ export function AuctionParticipantManager({
                 <p
                   className={`mt-2 rounded-md border px-2.5 py-2 text-xs ${
                     message.type === "error"
-                      ? "border-rose-300/30 bg-rose-500/10 text-rose-700 dark:text-rose-200"
-                      : "border-cyan-300/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
+                      ? "border-[color-mix(in_srgb,var(--danger)_32%,transparent)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                      : "border-[color-mix(in_srgb,var(--success)_32%,transparent)] bg-[var(--success-soft)] text-[var(--success)]"
                   }`}
                 >
                   {message.text}
                 </p>
               ) : null}
               {isFull && isEditable ? (
-                <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
+                <p className="mt-2 text-xs text-[var(--warning)]">
                   팀 정원이 모두 채워져 참가자를 더 추가할 수 없습니다.
                 </p>
               ) : null}
@@ -219,7 +219,7 @@ export function AuctionParticipantManager({
               <div className="mt-4 space-y-2">
                 {participants.map((participant) => (
                   <div
-                    className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-neutral-50 px-2.5 py-2 text-sm transition hover:bg-white dark:bg-slate-950/60 dark:hover:bg-slate-900/75"
+                    className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-hover)]"
                     key={participant.id}
                   >
                     <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
@@ -227,7 +227,7 @@ export function AuctionParticipantManager({
                       <div className="flex min-w-0 items-center gap-1.5">
                         <p className="truncate font-semibold text-[var(--foreground)]">{participant.nickname}</p>
                         {participant.isCaptain ? (
-                          <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-200">
+                          <span className="shrink-0 rounded border border-[color-mix(in_srgb,var(--success)_32%,transparent)] bg-[var(--success-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--success)]">
                             팀장
                           </span>
                         ) : null}
