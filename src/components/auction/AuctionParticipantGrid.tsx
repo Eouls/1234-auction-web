@@ -117,20 +117,26 @@ export function AuctionParticipantGrid({ participants }: { participants: Partici
     <>
       <div className="grid max-h-[560px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">
         {participants.map((participant) => {
-          const backgroundClass = participant.isCurrentTarget
-            ? "bg-amber-50 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)] hover:bg-amber-50 dark:bg-amber-400/10 dark:hover:bg-amber-400/10"
-            : "bg-white hover:bg-white dark:bg-slate-950/60 dark:hover:bg-slate-900/75";
+          const currentTargetClass = participant.isCurrentTarget
+            ? "shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)]"
+            : "";
+          const participantCardBackground = participant.isCurrentTarget
+            ? "var(--participant-current-bg)"
+            : "var(--participant-card-bg)";
 
           return (
             <button
               aria-label={`${participant.nickname} 상세 정보 보기`}
-              className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] ${participant.tierBorderClass} ${backgroundClass}`}
+              className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] [--participant-card-bg:#ffffff] [--participant-current-bg:#fffbeb] dark:[--participant-card-bg:rgba(2,6,23,0.60)] dark:[--participant-current-bg:rgba(251,191,36,0.10)] ${participant.tierBorderClass} ${currentTargetClass}`}
+              data-current-target={participant.isCurrentTarget ? "true" : "false"}
+              data-participant-card="true"
               key={participant.id}
               onBlur={hideOverlay}
               onClick={(event) => showOverlay(participant, event.currentTarget)}
               onFocus={(event) => showOverlay(participant, event.currentTarget)}
               onMouseEnter={(event) => showOverlay(participant, event.currentTarget)}
               onMouseLeave={hideOverlay}
+              style={{ backgroundColor: participantCardBackground }}
               type="button"
             >
               <Avatar name={participant.nickname} size="sm" src={participant.imageUrl} />
