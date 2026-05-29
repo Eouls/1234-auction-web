@@ -366,10 +366,15 @@ async function resolveMostChampionCandidates(candidates: ParsedChampionCandidate
 }
 
 function extractChampionGames(text: string) {
-  const gamesMatch = /(\d+)\s*(?:게임|games?|판)\b/i.exec(text);
-  if (!gamesMatch?.[1]) return 0;
+  const gamesMatch = /(\d+)\s*(?:게임|games?|matches?|판|전|회)\b/i.exec(text);
+  if (gamesMatch?.[1]) return Number.parseInt(gamesMatch[1], 10) || 0;
 
-  return Number.parseInt(gamesMatch[1], 10) || 0;
+  const winLossMatch = /(\d+)\s*(?:승|W)\s+(\d+)\s*(?:패|L)\b/i.exec(text);
+  if (winLossMatch?.[1] && winLossMatch[2]) {
+    return (Number.parseInt(winLossMatch[1], 10) || 0) + (Number.parseInt(winLossMatch[2], 10) || 0);
+  }
+
+  return 0;
 }
 
 function getPeakTierSection(text: string) {

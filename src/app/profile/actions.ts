@@ -371,29 +371,25 @@ async function getOpggStatsUpdate({
     tier: highestPeak?.tier ?? null,
     rank: highestPeak?.rank ?? null,
   });
-  const aggregatedMostChampions = Array.from(aggregatedMostChampionMap.values())
-    .sort(
-      (first, second) =>
-        second.games - first.games ||
-        first.name.localeCompare(second.name) ||
-        first.firstSeenIndex - second.firstSeenIndex,
-    )
-    .slice(0, 3);
-
-  console.log("[profile-actions] aggregated most champions", {
+  const aggregatedMostChampionValues = Array.from(aggregatedMostChampionMap.values());
+  console.log("[profile-actions] aggregated most champions before sort", {
     totalAccounts: accounts.length,
     successfulAccounts: mostChampionSuccessCount,
-    champions: Array.from(aggregatedMostChampionMap.values())
-      .sort(
-        (first, second) =>
-          second.games - first.games ||
-          first.name.localeCompare(second.name) ||
-          first.firstSeenIndex - second.firstSeenIndex,
-      )
+    champions: aggregatedMostChampionValues
       .map((champion) => ({ name: champion.name, games: champion.games }))
       .slice(0, 20),
   });
-  console.log("[profile-actions] selected aggregated most champions", {
+  const sortedAggregatedMostChampions = [...aggregatedMostChampionValues].sort(compareMostChampionPlayCount);
+  const aggregatedMostChampions = sortedAggregatedMostChampions.slice(0, 3);
+
+  console.log("[profile-actions] aggregated most champions after sort", {
+    totalAccounts: accounts.length,
+    successfulAccounts: mostChampionSuccessCount,
+    champions: sortedAggregatedMostChampions
+      .map((champion) => ({ name: champion.name, games: champion.games }))
+      .slice(0, 20),
+  });
+  console.log("[profile-actions] saved most champions", {
     mostChampion1: aggregatedMostChampions[0]?.name ?? null,
     mostChampion2: aggregatedMostChampions[1]?.name ?? null,
     mostChampion3: aggregatedMostChampions[2]?.name ?? null,
@@ -431,6 +427,13 @@ async function getOpggStatsUpdate({
     warning: warnings.length ? warnings.join(" / ") : undefined,
     peakSourceAccount: highestPeak ? formatRiotAccountLabel(highestPeak) : null,
   };
+}
+
+function compareMostChampionPlayCount(
+  first: Extract<OpggProfileStatsResult, { success: true }>["mostChampions"][number] & { firstSeenIndex: number },
+  second: Extract<OpggProfileStatsResult, { success: true }>["mostChampions"][number] & { firstSeenIndex: number },
+) {
+  return second.games - first.games || first.firstSeenIndex - second.firstSeenIndex || first.name.localeCompare(second.name);
 }
 
 async function getInvalidExistingChampionCleanup(
