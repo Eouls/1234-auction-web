@@ -395,17 +395,30 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
                   경매가 일시중지되었습니다
                 </h2>
 
+                {/* 라이트 모드용 설명 */}
                 <p
-                  className="mt-2 text-sm leading-6"
+                  className="mt-2 block text-sm leading-6 dark:hidden"
                   style={{ color: "#78350f" }}
                 >
                   {pauseDescription} 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
                 </p>
 
+                {/* 다크 모드용 설명 - 기존 색상 유지 */}
+                <p className="mt-2 hidden text-sm leading-6 text-amber-100/80 dark:block">
+                  {pauseDescription} 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
+                </p>
+
+                {/* 라이트 모드용 보조 정보 */}
                 <p
-                  className="mt-3 text-xs font-semibold"
+                  className="mt-3 block text-xs font-semibold dark:hidden"
                   style={{ color: "#92400e" }}
                 >
+                  저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
+                  {currentTarget ? ` · 현재 대상: ${currentTarget.nickname}` : ""}
+                </p>
+
+                {/* 다크 모드용 보조 정보 - 기존 색상 유지 */}
+                <p className="mt-3 hidden text-xs font-semibold text-amber-100/80 dark:block">
                   저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
                   {currentTarget ? ` · 현재 대상: ${currentTarget.nickname}` : ""}
                 </p>
