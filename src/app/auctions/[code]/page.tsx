@@ -395,11 +395,17 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
                   경매가 일시중지되었습니다
                 </h2>
 
-                <p className="mt-2 text-sm leading-6 text-amber-900 dark:text-amber-100/80">
+                <p
+                  className="mt-2 text-sm leading-6"
+                  style={{ color: "#78350f" }}
+                >
                   {pauseDescription} 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
                 </p>
 
-                <p className="mt-3 text-xs font-semibold text-amber-800 dark:text-amber-100/80">
+                <p
+                  className="mt-3 text-xs font-semibold"
+                  style={{ color: "#92400e" }}
+                >
                   저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
                   {currentTarget ? ` · 현재 대상: ${currentTarget.nickname}` : ""}
                 </p>
