@@ -391,11 +391,15 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
           <Card className="p-6">
             {isPaused ? (
               <div className="rounded-md border border-amber-300/30 bg-amber-400/10 p-4">
-                <h2 className="text-lg font-bold text-amber-100">경매가 일시중지되었습니다</h2>
-                <p className="mt-2 text-sm leading-6 text-amber-100/80">
+                <h2 className="text-lg font-bold text-amber-100">
+                  경매가 일시중지되었습니다
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-amber-900 dark:text-amber-100/80">
                   {pauseDescription} 팀장이 다시 입장하면 방장이 경매를 재개할 수 있습니다.
                 </p>
-                <p className="mt-3 text-xs font-semibold text-amber-100/80">
+
+                <p className="mt-3 text-xs font-semibold text-amber-800 dark:text-amber-100/80">
                   저장된 남은 시간: {formatRemainingMs(auction.pausedRemainingMs)}
                   {currentTarget ? ` · 현재 대상: ${currentTarget.nickname}` : ""}
                 </p>
