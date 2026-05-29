@@ -121,13 +121,13 @@ export function AuctionParticipantGrid({ participants }: { participants: Partici
             ? "shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)]"
             : "";
           const participantCardBackground = participant.isCurrentTarget
-            ? "var(--participant-current-bg)"
-            : "var(--participant-card-bg)";
+            ? "color-mix(in srgb, #fbbf24 12%, var(--card))"
+            : "var(--card)";
 
           return (
             <button
               aria-label={`${participant.nickname} 상세 정보 보기`}
-              className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] [--participant-card-bg:#ffffff] [--participant-current-bg:#fffbeb] dark:[--participant-card-bg:rgba(2,6,23,0.60)] dark:[--participant-current-bg:rgba(251,191,36,0.10)] ${participant.tierBorderClass} ${currentTargetClass}`}
+              className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--border-strong)] ${participant.tierBorderClass} ${currentTargetClass}`}
               data-current-target={participant.isCurrentTarget ? "true" : "false"}
               data-participant-card="true"
               key={participant.id}
