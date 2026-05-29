@@ -3,6 +3,7 @@ import { AuctionStatus, ParticipantStatus } from "@/generated/prisma/client";
 import { AuctionBidLog } from "@/components/auction/AuctionBidLog";
 import { AuctionChatPanel } from "@/components/auction/AuctionChatPanel";
 import { AuctionOwnerControls, AuctionStartControl, BidControls } from "@/components/auction/AuctionControls";
+import { AuctionParticipantGrid } from "@/components/auction/AuctionParticipantGrid";
 import { CaptainSetupPanel } from "@/components/auction/CaptainSetupPanel";
 import { AuctionPresenceHeartbeat } from "@/components/auction/AuctionPresenceHeartbeat";
 import { AuctionRoomRealtime } from "@/components/auction/AuctionRoomRealtime";
@@ -30,22 +31,6 @@ type AuctionRoomPageProps = {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const participantStatusLabels: Record<string, string> = {
-  WAITING: "대기",
-  CAPTAIN: "팀장",
-  SOLD: "낙찰됨",
-  BIDDING: "경매중",
-  UNSOLD: "재경매 대기",
-};
-
-const participantStatusColors: Record<string, string> = {
-  WAITING: "border-slate-300/20 bg-slate-400/10 text-slate-300",
-  CAPTAIN: "border-cyan-300/40 bg-cyan-400/10 text-cyan-200",
-  SOLD: "border-emerald-300/40 bg-emerald-400/10 text-emerald-200",
-  BIDDING: "border-amber-300/40 bg-amber-400/10 text-amber-200",
-  UNSOLD: "border-amber-300/40 bg-amber-400/10 text-amber-200",
-};
 
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
 
@@ -236,6 +221,17 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
     currentTarget?.lolStats?.mostChampion2,
     currentTarget?.lolStats?.mostChampion3,
   ]);
+  const participantChampionIconEntries = await Promise.all(
+    sortedParticipants.map(async (participant) => [
+      participant.id,
+      await resolveChampionIcons([
+        participant.user.lolStats?.mostChampion1,
+        participant.user.lolStats?.mostChampion2,
+        participant.user.lolStats?.mostChampion3,
+      ]),
+    ] as const),
+  );
+  const participantChampionIconMap = new Map(participantChampionIconEntries);
   const accessibleChatMessages = auction.messages
     .filter((message) => message.type === "GLOBAL" || message.teamId === currentUserTeamId)
     .map((message) => ({
@@ -536,48 +532,39 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         <aside className="space-y-4">
           <Card className="p-3">
             <SectionTitle title="참가자 목록" />
-            <div className="grid max-h-[560px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">
-              {sortedParticipants.map((participant) => {
+            <AuctionParticipantGrid
+              participants={sortedParticipants.map((participant) => {
                 const isCurrentTarget = participant.id === auction.currentTargetParticipantId;
                 const soldTeam = participant.teamId
                   ? auction.teams.find((team) => team.id === participant.teamId)
                   : null;
-                const peakTierBorderClass = getPeakTierBorderClass(participant.user.lolStats?.peakTier);
+                const championIcons = participantChampionIconMap.get(participant.id) ?? [null, null, null];
 
-                return (
-                <div
-                  key={participant.id}
-                  className={`relative flex min-h-24 flex-col items-center justify-center rounded-md border-2 px-1.5 py-1.5 text-center transition ${
-                    isCurrentTarget
-                      ? `${peakTierBorderClass} bg-amber-400/10 shadow-sm ring-2 ring-amber-300/70 ring-offset-1 ring-offset-[var(--card)]`
-                      : `${peakTierBorderClass} bg-slate-950/60`
-                  }`}
-                  title={`최고티어: ${formatTier(participant.user.lolStats?.peakTier, participant.user.lolStats?.peakRank)}`}
-                >
-                  <Avatar
-                    name={participant.user.nickname}
-                    size="sm"
-                    src={participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl}
-                  />
-                  {isCurrentTarget ? (
-                    <span className="absolute left-1 top-1 rounded bg-amber-300 px-1.5 py-0.5 text-[10px] font-black text-slate-950">
-                      현재
-                    </span>
-                  ) : null}
-                  <p className="mt-1 w-full truncate text-[11px] font-bold text-white">{participant.user.nickname}</p>
-                  <div className="mt-1 flex max-w-full flex-wrap justify-center gap-0.5">
-                    {participant.user.mainRole ? <RoleBadge role={participant.user.mainRole as LolRole} /> : null}
-                    <ParticipantStatusBadge status={participant.status} compact />
-                  </div>
-                  {soldTeam ? (
-                    <p className="mt-0.5 w-full truncate text-[10px] font-semibold text-emerald-200">
-                      {participant.soldPrice === 0 ? "자동배정" : "낙찰"} / {getTeamDisplayName(soldTeam)}
-                    </p>
-                  ) : null}
-                </div>
-                );
+                return {
+                  auctionStats: participant.user.auctionStats,
+                  champions: [championIcons[0] ?? null, championIcons[1] ?? null, championIcons[2] ?? null],
+                  currentRank: participant.user.lolStats?.currentRank ?? null,
+                  currentTier: participant.user.lolStats?.currentTier ?? null,
+                  id: participant.id,
+                  imageUrl: participant.user.customProfileImageUrl ?? participant.user.discordAvatarUrl,
+                  isCurrentTarget,
+                  lolAccount: participant.user.lolAccounts[0]
+                    ? `${participant.user.lolAccounts[0].gameName} #${participant.user.lolAccounts[0].tagLine}`
+                    : null,
+                  mainRole: participant.user.mainRole as LolRole | null,
+                  nickname: participant.user.nickname,
+                  peakRank: participant.user.lolStats?.peakRank ?? null,
+                  peakTier: participant.user.lolStats?.peakTier ?? null,
+                  soldLabel: soldTeam
+                    ? `${participant.soldPrice === 0 ? "자동배정" : "낙찰"} / ${getTeamDisplayName(soldTeam)}`
+                    : null,
+                  soldPrice: participant.soldPrice,
+                  status: participant.status,
+                  subRole: participant.user.subRole as LolRole | null,
+                  tierBorderClass: getPeakTierBorderClass(participant.user.lolStats?.peakTier),
+                };
               })}
-            </div>
+            />
           </Card>
           <AuctionChatPanel
             auctionCode={auction.code}
@@ -739,18 +726,4 @@ function getCaptainPresenceItems(
       teamName: getTeamDisplayName(team) ?? team.name,
     };
   });
-}
-
-function ParticipantStatusBadge({ compact = false, status }: { compact?: boolean; status: string }) {
-  return (
-    <span
-      className={`shrink-0 rounded-md border font-semibold ${
-        compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
-      } ${
-        participantStatusColors[status] ?? participantStatusColors.WAITING
-      }`}
-    >
-      {participantStatusLabels[status] ?? status}
-    </span>
-  );
 }
