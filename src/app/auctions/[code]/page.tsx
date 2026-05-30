@@ -488,6 +488,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             auctionId={auction.id}
             canBid={canBid}
             currentBidAmount={currentBid?.amount ?? 0}
+            currentBidTeamId={currentBid?.bidderTeamId ?? null}
             currentBidTeamName={
               currentBid
                 ? getTeamDisplayName(auction.teams.find((team) => team.id === currentBid.bidderTeamId)) ?? "정보 없음"
@@ -495,6 +496,8 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             }
             currentTargetParticipantId={auction.currentTargetParticipantId}
             currentRoundEndAt={auction.currentRoundEndAt?.toISOString() ?? null}
+            currentUserTeamId={currentUserCaptainTeam?.id ?? null}
+            currentUserTeamPointsLeft={currentUserCaptainTeam?.pointsLeft ?? null}
             hasTarget={Boolean(currentTargetParticipant)}
             isCurrentBidderTeam={isCurrentBidderTeam}
             isTeamFull={isCurrentUserTeamFull}

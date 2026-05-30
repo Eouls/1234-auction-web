@@ -364,6 +364,7 @@ export async function placeBid(
   const currentUser = await getCurrentUser();
   const auctionId = stringValue(formData.get("auctionId"));
   const auctionCode = stringValue(formData.get("auctionCode"));
+  const submittedTargetParticipantId = stringValue(formData.get("targetParticipantId"));
   const amount = numberValue(formData.get("bidAmount"));
 
   if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
@@ -379,6 +380,9 @@ export async function placeBid(
       if (auction.status !== AuctionStatus.RUNNING) throw new CaptainActionError("진행 중인 경매가 아닙니다.");
       if (!auction.currentTargetParticipantId || !auction.currentRoundEndAt) {
         throw new CaptainActionError("현재 경매 대상자가 없습니다.");
+      }
+      if (!submittedTargetParticipantId || submittedTargetParticipantId !== auction.currentTargetParticipantId) {
+        throw new CaptainActionError("경매 대상이 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해주세요.");
       }
 
       const now = new Date();

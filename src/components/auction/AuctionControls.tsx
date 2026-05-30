@@ -159,10 +159,13 @@ type BidControlProps = {
   auctionId: string;
   auctionCode: string;
   currentBidAmount: number;
+  currentBidTeamId: string | null;
   currentBidTeamName: string;
   currentTargetParticipantId: string | null;
   currentRoundEndAt: string | null;
   canBid: boolean;
+  currentUserTeamId: string | null;
+  currentUserTeamPointsLeft: number | null;
   isCurrentBidderTeam: boolean;
   isTeamFull: boolean;
   isOwner: boolean;
@@ -176,10 +179,13 @@ export function BidControls({
   auctionId,
   auctionCode,
   currentBidAmount,
+  currentBidTeamId,
   currentBidTeamName,
   currentTargetParticipantId,
   currentRoundEndAt,
   canBid,
+  currentUserTeamId,
+  currentUserTeamPointsLeft,
   isCurrentBidderTeam,
   isTeamFull,
   isOwner,
@@ -203,6 +209,7 @@ export function BidControls({
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
   const isAutoFinalizingRef = useRef(false);
   const playedSecondKeysRef = useRef<Set<string>>(new Set());
+  const previousBidDisabledDebugSignatureRef = useRef<string | null>(null);
   const previousBidSignatureRef = useRef<string | null>(null);
   const roundKeyRef = useRef("");
   const soundCycleKeyRef = useRef("");
@@ -240,8 +247,13 @@ export function BidControls({
   const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
   const isBidGraceExpired = hasMounted ? remainingMs < -BID_GRACE_PERIOD_MS : true;
   const isGracePeriodActive = isTimeOver && isRunning && hasTarget && !isBidGraceExpired;
-  const bidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
+  const baseBidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
+  const debugRemainingSeconds = Math.ceil(remainingMs / 1000);
+  const hasEnoughPointsForDirectBid =
+    typeof currentUserTeamPointsLeft === "number" && directBidAmount > 0
+      ? directBidAmount <= currentUserTeamPointsLeft
+      : true;
   const pausedRemainingSeconds =
     typeof pausedRemainingMs === "number" ? Math.max(0, Math.ceil(pausedRemainingMs / 1000)) : null;
   const remainingTimeLabel =
@@ -257,6 +269,31 @@ export function BidControls({
     () => [5, 10, 50, 100].map((increment) => currentBidAmount + increment),
     [currentBidAmount],
   );
+  const disabledReasons = useMemo(() => {
+    const reasons: string[] = [];
+
+    if (!currentUserTeamId) reasons.push("not-captain");
+    if (!canBid) reasons.push("cannot-bid");
+    if (isCurrentBidderTeam) reasons.push("current-highest-bidder-team");
+    if (!isRunning) reasons.push("not-running");
+    if (isPaused) reasons.push("paused");
+    if (!hasTarget) reasons.push("no-target");
+    if (isTeamFull) reasons.push("team-full");
+    if (isBidGraceExpired) reasons.push("grace-expired");
+    if (isBidding) reasons.push("bidding-pending");
+
+    return reasons;
+  }, [
+    canBid,
+    currentUserTeamId,
+    hasTarget,
+    isBidGraceExpired,
+    isBidding,
+    isCurrentBidderTeam,
+    isPaused,
+    isRunning,
+    isTeamFull,
+  ]);
 
   useEffect(() => {
     const storedValue = window.localStorage.getItem("auction-countdown-sound");
@@ -288,6 +325,47 @@ export function BidControls({
     console.log("[auction-bid-client] router.refresh called", { auctionId });
     router.refresh();
   }, [auctionId, bidState.success, router]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+
+    const debugSignature = JSON.stringify({
+      currentBidTeamId,
+      currentUserTeamId,
+      debugRemainingSeconds,
+      disabledReasons,
+      hasEnoughPointsForDirectBid,
+      isCurrentBidderTeam,
+    });
+    if (previousBidDisabledDebugSignatureRef.current === debugSignature) return;
+    previousBidDisabledDebugSignatureRef.current = debugSignature;
+
+    console.log("[auction-bid-disabled]", {
+      auctionId,
+      currentBidTeamId,
+      disabledReasons,
+      hasEnoughPoints: hasEnoughPointsForDirectBid,
+      isCaptain: Boolean(currentUserTeamId),
+      isCurrentHighestBidder: isCurrentBidderTeam,
+      isPaused,
+      isRunning,
+      isTeamFull,
+      myTeamId: currentUserTeamId,
+      remainingMs,
+    });
+  }, [
+    auctionId,
+    currentBidTeamId,
+    currentUserTeamId,
+    debugRemainingSeconds,
+    disabledReasons,
+    hasEnoughPointsForDirectBid,
+    isCurrentBidderTeam,
+    isPaused,
+    isRunning,
+    isTeamFull,
+    remainingMs,
+  ]);
 
   useEffect(() => {
     if (!hasMounted) return;
@@ -533,8 +611,16 @@ export function BidControls({
           <form action={bidAction} key={amount}>
             <input name="auctionId" type="hidden" value={auctionId} />
             <input name="auctionCode" type="hidden" value={auctionCode} />
+            <input name="targetParticipantId" type="hidden" value={currentTargetParticipantId ?? ""} />
             <input name="bidAmount" type="hidden" value={amount} />
-            <Button disabled={bidDisabled} type="submit" variant="secondary">
+            <Button
+              disabled={
+                baseBidDisabled ||
+                (typeof currentUserTeamPointsLeft === "number" && amount > currentUserTeamPointsLeft)
+              }
+              type="submit"
+              variant="secondary"
+            >
               {amount - currentBidAmount > 0 ? `+${amount - currentBidAmount}` : amount} ({amount}P)
             </Button>
           </form>
@@ -542,9 +628,10 @@ export function BidControls({
         <form action={bidAction} className="flex min-w-[190px] gap-2">
           <input name="auctionId" type="hidden" value={auctionId} />
           <input name="auctionCode" type="hidden" value={auctionCode} />
+          <input name="targetParticipantId" type="hidden" value={currentTargetParticipantId ?? ""} />
           <Input
             className="min-w-0 flex-1"
-            disabled={bidDisabled}
+            disabled={baseBidDisabled}
             min={5}
             name="bidAmount"
             onChange={(event) => setDirectAmount(event.target.value)}
@@ -553,7 +640,11 @@ export function BidControls({
             type="number"
             value={directAmount}
           />
-          <Button className="min-w-14 whitespace-nowrap" disabled={bidDisabled || !directBidAmount} type="submit">
+          <Button
+            className="min-w-14 whitespace-nowrap"
+            disabled={baseBidDisabled || !directBidAmount || !hasEnoughPointsForDirectBid}
+            type="submit"
+          >
             입찰
           </Button>
         </form>
