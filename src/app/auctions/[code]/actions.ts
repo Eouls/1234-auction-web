@@ -34,7 +34,8 @@ const editableAuctionStatuses = new Set<string>([AuctionStatus.DRAFT, AuctionSta
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
 const ACTIVE_CAPTAIN_WINDOW_MS = 90 * 1000;
 const BID_GRACE_PERIOD_MS = 2000;
-const FINALIZE_SETTLE_DELAY_MS = 1000;
+const BID_SETTLE_DELAY_MS = 1000;
+const BID_ACCEPT_WINDOW_MS = BID_GRACE_PERIOD_MS + BID_SETTLE_DELAY_MS;
 const PAUSE_REASON_INACTIVE_CAPTAINS = "INACTIVE_CAPTAINS";
 const PAUSE_REASON_MANUAL = "MANUAL";
 
@@ -465,7 +466,9 @@ export async function placeBid(
     bidDeniedMetadata = {
       amount,
       auctionCode,
+      bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
+      settleDelayMs: BID_SETTLE_DELAY_MS,
       submittedTargetParticipantId,
       ...metadata,
     };
@@ -534,19 +537,27 @@ export async function placeBid(
       }
 
       const now = new Date();
-      const bidDeadline = new Date(auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS);
+      const bidDeadlineMs = auction.currentRoundEndAt.getTime() + BID_ACCEPT_WINDOW_MS;
+      const finalizeDeadlineMs = bidDeadlineMs;
+      const bidDeadline = new Date(bidDeadlineMs);
       const remainingMs = auction.currentRoundEndAt.getTime() - now.getTime();
-      const withinGracePeriod = now.getTime() <= bidDeadline.getTime();
+      const withinBidAcceptWindow = now.getTime() <= bidDeadlineMs;
       console.log("[auction-bid] grace period check", {
         bidDeadline: bidDeadline.toISOString(),
+        bidAcceptDeadlineMs: bidDeadlineMs,
         currentRoundEndAt: auction.currentRoundEndAt.toISOString(),
+        finalizeDeadlineMs,
+        gracePeriodMs: BID_GRACE_PERIOD_MS,
         now: now.toISOString(),
-        withinGracePeriod,
+        settleDelayMs: BID_SETTLE_DELAY_MS,
+        withinBidAcceptWindow,
       });
 
-      if (!withinGracePeriod) {
+      if (!withinBidAcceptWindow) {
         denyBid("경매 시간이 종료되어 입찰할 수 없습니다.", {
           ...baseDeniedMetadata,
+          bidAcceptDeadlineMs: bidDeadlineMs,
+          finalizeDeadlineMs,
           reason: "BID_GRACE_PERIOD_EXPIRED",
           remainingMs,
         });
@@ -635,16 +646,18 @@ export async function placeBid(
 
       const nextRoundEndAt = getCappedExtendedRoundEndAt({
         auctionSeconds: auction.auctionSeconds,
+        bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
         currentRoundEndAt: auction.currentRoundEndAt,
         extendSeconds: auction.extendSeconds,
-        gracePeriodMs: BID_GRACE_PERIOD_MS,
         now,
       });
 
       if (!nextRoundEndAt) {
         denyBid("경매 시간이 종료되어 입찰할 수 없습니다.", {
           ...baseDeniedMetadata,
+          bidAcceptDeadlineMs: bidDeadlineMs,
           currentUserTeamId: bidderTeam.id,
+          finalizeDeadlineMs,
           reason: "BID_EXTENSION_DENIED_AFTER_GRACE",
           remainingMs,
         });
@@ -670,7 +683,7 @@ export async function placeBid(
         pointsLeft: bidderTeam.pointsLeft,
         teamId: bidderTeam.id,
       });
-      });
+    });
   } catch (error) {
     if (error instanceof CaptainActionError) {
       await logAppError({
@@ -680,8 +693,10 @@ export async function placeBid(
         metadata: bidDeniedMetadata ?? {
           amount,
           auctionCode,
+          bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
           gracePeriodMs: BID_GRACE_PERIOD_MS,
           reason: error.message,
+          settleDelayMs: BID_SETTLE_DELAY_MS,
           submittedTargetParticipantId,
         },
         scope: "auction-bid-denied",
@@ -722,10 +737,11 @@ export async function finalizeRound(
   function finalizeNoop(reason: string, metadata: Record<string, unknown>): AuctionActionState {
     finalizeNoopMetadata = {
       auctionCode,
+      bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
       forceFinalize,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       reason,
-      settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
+      settleDelayMs: BID_SETTLE_DELAY_MS,
       submittedRoundEndAt: submittedRoundEndAt || null,
       submittedTargetParticipantId: submittedTargetParticipantId || null,
       ...metadata,
@@ -789,14 +805,14 @@ export async function finalizeRound(
       }
       if (!forceFinalize) {
         const finalizeDeadline = new Date(
-          auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS + FINALIZE_SETTLE_DELAY_MS,
+          auction.currentRoundEndAt.getTime() + BID_ACCEPT_WINDOW_MS,
         );
 
         if (finalizeDeadline.getTime() > now.getTime()) {
           return finalizeNoop("ROUND_NOT_ENDED", {
             ...baseNoopMetadata,
             finalizeDeadline: finalizeDeadline.toISOString(),
-            settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
+            settleDelayMs: BID_SETTLE_DELAY_MS,
           });
         }
       }
@@ -969,8 +985,11 @@ export async function finalizeRound(
         message: "Auction finalize noop",
         metadata: finalizeNoopMetadata ?? {
           auctionCode,
+          bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
           forceFinalize,
+          gracePeriodMs: BID_GRACE_PERIOD_MS,
           reason: result.reason ?? "UNKNOWN_NOOP",
+          settleDelayMs: BID_SETTLE_DELAY_MS,
           submittedRoundEndAt: submittedRoundEndAt || null,
           submittedTargetParticipantId: submittedTargetParticipantId || null,
         },
@@ -2236,19 +2255,19 @@ async function lockAuctionForUpdate(tx: Prisma.TransactionClient, auctionId: str
 
 function getCappedExtendedRoundEndAt({
   auctionSeconds,
+  bidAcceptWindowMs,
   currentRoundEndAt,
   extendSeconds,
-  gracePeriodMs,
   now,
 }: {
   auctionSeconds: number;
+  bidAcceptWindowMs: number;
   currentRoundEndAt: Date;
   extendSeconds: number;
-  gracePeriodMs: number;
   now: Date;
 }) {
   const currentRemainingMs = currentRoundEndAt.getTime() - now.getTime();
-  if (currentRemainingMs < -gracePeriodMs) return null;
+  if (currentRemainingMs < -bidAcceptWindowMs) return null;
 
   const extendMs = Math.max(0, extendSeconds) * 1000;
   const extendedRemainingMs = currentRemainingMs + extendMs;

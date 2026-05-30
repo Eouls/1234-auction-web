@@ -16,7 +16,8 @@ import { Button, Card, Input } from "@/components/ui";
 
 const initialState: AuctionActionState = {};
 const BID_GRACE_PERIOD_MS = 2000;
-const FINALIZE_SETTLE_DELAY_MS = 1000;
+const BID_SETTLE_DELAY_MS = 1000;
+const BID_ACCEPT_WINDOW_MS = BID_GRACE_PERIOD_MS + BID_SETTLE_DELAY_MS;
 const DEFAULT_SOUND_VOLUME = 0.4;
 const END_SOUND_VOLUME_MULTIPLIER = 0.8;
 
@@ -247,6 +248,12 @@ export function BidControls({
   const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
   const isBidGraceExpired = hasMounted ? remainingMs < -BID_GRACE_PERIOD_MS : true;
   const isGracePeriodActive = isTimeOver && isRunning && hasTarget && !isBidGraceExpired;
+  const isSettleDelayActive =
+    isTimeOver &&
+    isRunning &&
+    hasTarget &&
+    remainingMs < -BID_GRACE_PERIOD_MS &&
+    remainingMs >= -BID_ACCEPT_WINDOW_MS;
   const baseBidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
   const debugRemainingSeconds = Math.ceil(remainingMs / 1000);
@@ -280,6 +287,7 @@ export function BidControls({
     if (!hasTarget) reasons.push("no-target");
     if (isTeamFull) reasons.push("team-full");
     if (isBidGraceExpired) reasons.push("grace-expired");
+    if (isSettleDelayActive) reasons.push("settle-delay");
     if (isBidding) reasons.push("bidding-pending");
 
     return reasons;
@@ -292,6 +300,7 @@ export function BidControls({
     isCurrentBidderTeam,
     isPaused,
     isRunning,
+    isSettleDelayActive,
     isTeamFull,
   ]);
 
@@ -527,15 +536,17 @@ export function BidControls({
     if (autoFinalizeKeysRef.current.has(roundKey)) return;
 
     const finalizeRoundKey = roundKey;
-    const finalizeDelayMs = Math.max(0, BID_GRACE_PERIOD_MS + FINALIZE_SETTLE_DELAY_MS + remainingMs);
+    const finalizeDelayMs = Math.max(0, BID_ACCEPT_WINDOW_MS + remainingMs);
 
     console.log("[auction-timer] zero reached", { auctionId, roundKey: finalizeRoundKey });
-    console.log("[auction-timer] finalize scheduled", {
+    console.log("[auction-finalize-schedule]", {
       auctionId,
+      currentRoundEndAt,
+      currentTargetParticipantId,
       delayMs: finalizeDelayMs,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       roundKey: finalizeRoundKey,
-      settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
+      settleDelayMs: BID_SETTLE_DELAY_MS,
     });
 
     const timeout = window.setTimeout(() => {
@@ -689,7 +700,11 @@ export function BidControls({
       <div className="mt-3 min-h-[42px]">
         {isTimeOver && isRunning && hasTarget ? (
           <p className="rounded-md border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-            {isOwner ? "라운드 종료를 자동 처리하는 중입니다." : "라운드 종료 대기 중입니다."}
+            {isSettleDelayActive
+              ? "최종 입찰 반영 중입니다."
+              : isOwner
+                ? "라운드 종료를 자동 처리하는 중입니다."
+                : "라운드 종료 대기 중입니다."}
           </p>
         ) : null}
       </div>
