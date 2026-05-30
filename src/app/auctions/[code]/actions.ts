@@ -366,6 +366,18 @@ export async function placeBid(
   const auctionCode = stringValue(formData.get("auctionCode"));
   const submittedTargetParticipantId = stringValue(formData.get("targetParticipantId"));
   const amount = numberValue(formData.get("bidAmount"));
+  let bidDeniedMetadata: Record<string, unknown> | null = null;
+
+  function denyBid(message: string, metadata: Record<string, unknown>): never {
+    bidDeniedMetadata = {
+      amount,
+      auctionCode,
+      gracePeriodMs: BID_GRACE_PERIOD_MS,
+      submittedTargetParticipantId,
+      ...metadata,
+    };
+    throw new CaptainActionError(message);
+  }
 
   if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
 
@@ -376,17 +388,59 @@ export async function placeBid(
         include: { teams: true, participants: true },
       });
 
-      if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
-      if (auction.status !== AuctionStatus.RUNNING) throw new CaptainActionError("진행 중인 경매가 아닙니다.");
+      if (!auction) {
+        denyBid("경매방을 찾을 수 없습니다.", {
+          auctionStatus: null,
+          currentBidTeamId: null,
+          currentTargetParticipantId: null,
+          currentUserTeamId: null,
+          reason: "AUCTION_NOT_FOUND",
+          remainingMs: null,
+        });
+      }
+
+      const bidderTeam = auction.teams.find((team) => team.captainId === currentUser.id) ?? null;
+      const currentBid = auction.currentBidId
+        ? await tx.auctionBid.findUnique({ where: { id: auction.currentBidId } })
+        : null;
+      const currentBidTeamId = currentBid?.bidderTeamId ?? null;
+      const baseDeniedMetadata = {
+        auctionStatus: auction.status,
+        currentBidTeamId,
+        currentTargetParticipantId: auction.currentTargetParticipantId,
+        currentUserTeamId: bidderTeam?.id ?? null,
+        remainingMs: auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - Date.now() : null,
+      };
+
+      if (auction.status === AuctionStatus.PAUSED) {
+        denyBid("경매가 일시정지되어 입찰할 수 없습니다.", {
+          ...baseDeniedMetadata,
+          reason: "AUCTION_PAUSED",
+        });
+      }
+
+      if (auction.status !== AuctionStatus.RUNNING) {
+        denyBid("진행 중인 경매가 아닙니다.", {
+          ...baseDeniedMetadata,
+          reason: "AUCTION_NOT_RUNNING",
+        });
+      }
       if (!auction.currentTargetParticipantId || !auction.currentRoundEndAt) {
-        throw new CaptainActionError("현재 경매 대상자가 없습니다.");
+        denyBid("현재 경매 대상자가 없습니다.", {
+          ...baseDeniedMetadata,
+          reason: "NO_CURRENT_TARGET",
+        });
       }
       if (!submittedTargetParticipantId || submittedTargetParticipantId !== auction.currentTargetParticipantId) {
-        throw new CaptainActionError("경매 대상이 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해주세요.");
+        denyBid("경매 대상이 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해주세요.", {
+          ...baseDeniedMetadata,
+          reason: "TARGET_PARTICIPANT_MISMATCH",
+        });
       }
 
       const now = new Date();
       const bidDeadline = new Date(auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS);
+      const remainingMs = auction.currentRoundEndAt.getTime() - now.getTime();
       const withinGracePeriod = now.getTime() <= bidDeadline.getTime();
       console.log("[auction-bid] grace period check", {
         bidDeadline: bidDeadline.toISOString(),
@@ -396,34 +450,74 @@ export async function placeBid(
       });
 
       if (!withinGracePeriod) {
-        throw new CaptainActionError("경매 시간이 종료되어 입찰할 수 없습니다.");
+        denyBid("경매 시간이 종료되어 입찰할 수 없습니다.", {
+          ...baseDeniedMetadata,
+          reason: "BID_GRACE_PERIOD_EXPIRED",
+          remainingMs,
+        });
       }
 
-      const bidderTeam = auction.teams.find((team) => team.captainId === currentUser.id);
-      if (!bidderTeam) throw new CaptainActionError("팀장만 입찰할 수 있습니다.");
+      if (!bidderTeam) {
+        denyBid("팀장만 입찰할 수 있습니다.", {
+          ...baseDeniedMetadata,
+          reason: "NOT_CAPTAIN",
+        });
+      }
       if (getTeamMemberCount(bidderTeam, auction.participants) >= auction.membersPerTeam) {
-        throw new CaptainActionError("이미 팀 정원이 가득 찼습니다.");
+        denyBid("이미 팀 정원이 가득 찼습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "TEAM_FULL",
+        });
       }
 
       const target = auction.participants.find(
         (participant) => participant.id === auction.currentTargetParticipantId,
       );
-      if (!target) throw new CaptainActionError("현재 경매 대상자가 없습니다.");
-      if (target.userId === currentUser.id || target.teamId === bidderTeam.id) {
-        throw new CaptainActionError("자기 자신 또는 자기 팀 구성원에게 입찰할 수 없습니다.");
+      if (!target) {
+        denyBid("현재 경매 대상자가 없습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "TARGET_PARTICIPANT_NOT_FOUND",
+        });
       }
-      if (amount <= 0 || amount % 5 !== 0) throw new CaptainActionError("5의 배수만 입찰할 수 있습니다.");
-
-      const currentBid = auction.currentBidId
-        ? await tx.auctionBid.findUnique({ where: { id: auction.currentBidId } })
-        : null;
+      if (target.userId === currentUser.id || target.teamId === bidderTeam.id) {
+        denyBid("자기 자신 또는 자기 팀 구성원에게 입찰할 수 없습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "OWN_TARGET",
+        });
+      }
+      if (amount <= 0 || amount % 5 !== 0) {
+        denyBid("5의 배수만 입찰할 수 있습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "INVALID_BID_AMOUNT",
+        });
+      }
       const currentAmount = currentBid?.amount ?? 0;
 
       if (currentBid?.bidderTeamId === bidderTeam.id) {
-        throw new CaptainActionError("현재 최고 입찰 팀은 추가 입찰할 수 없습니다.");
+        denyBid("현재 최고 입찰 팀은 추가 입찰할 수 없습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "CURRENT_HIGHEST_BIDDER_TEAM",
+        });
       }
-      if (amount <= currentAmount) throw new CaptainActionError("현재 입찰가보다 높아야 합니다.");
-      if (amount > bidderTeam.pointsLeft) throw new CaptainActionError("포인트가 부족합니다.");
+      if (amount <= currentAmount) {
+        denyBid("현재 입찰가보다 높아야 합니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "BID_NOT_HIGHER_THAN_CURRENT",
+        });
+      }
+      if (amount > bidderTeam.pointsLeft) {
+        denyBid("포인트가 부족합니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "INSUFFICIENT_POINTS",
+        });
+      }
 
       const bid = await tx.auctionBid.create({
         data: {
@@ -453,7 +547,12 @@ export async function placeBid(
       });
 
       if (!nextRoundEndAt) {
-        throw new CaptainActionError("경매 시간이 종료되어 입찰할 수 없습니다.");
+        denyBid("경매 시간이 종료되어 입찰할 수 없습니다.", {
+          ...baseDeniedMetadata,
+          currentUserTeamId: bidderTeam.id,
+          reason: "BID_EXTENSION_DENIED_AFTER_GRACE",
+          remainingMs,
+        });
       }
 
       await tx.auction.update({
@@ -478,7 +577,23 @@ export async function placeBid(
       });
     });
   } catch (error) {
-    if (error instanceof CaptainActionError) return { error: error.message };
+    if (error instanceof CaptainActionError) {
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Bid denied",
+        metadata: bidDeniedMetadata ?? {
+          amount,
+          auctionCode,
+          gracePeriodMs: BID_GRACE_PERIOD_MS,
+          reason: error.message,
+          submittedTargetParticipantId,
+        },
+        scope: "auction-bid-denied",
+        userId: currentUser.id,
+      });
+      return { error: error.message };
+    }
     console.error("[auction-bid] Failed", error);
     await logAppError({
       auctionId,
