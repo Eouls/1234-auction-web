@@ -327,6 +327,27 @@ export function BidControls({
   }, [auctionId, bidState.success, router]);
 
   useEffect(() => {
+    if (!bidState.error || process.env.NODE_ENV !== "development") return;
+
+    console.warn("[auction-bid-failed]", {
+      auctionId,
+      currentTargetParticipantId,
+      isBidding,
+      isAutoFinalizing,
+      remainingMs,
+      reason: bidState.reason ?? bidState.error,
+    });
+  }, [
+    auctionId,
+    bidState.error,
+    bidState.reason,
+    currentTargetParticipantId,
+    isAutoFinalizing,
+    isBidding,
+    remainingMs,
+  ]);
+
+  useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
 
     const debugSignature = JSON.stringify({

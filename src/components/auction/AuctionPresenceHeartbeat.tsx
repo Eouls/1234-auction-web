@@ -11,6 +11,7 @@ type AuctionPresenceHeartbeatProps = {
 };
 
 const HEARTBEAT_INTERVAL_MS = 5 * 1000;
+const HEARTBEAT_STUCK_RESET_MS = 15 * 1000;
 const REFRESH_INTERVAL_MS = 3 * 1000;
 
 export function AuctionPresenceHeartbeat({
@@ -27,10 +28,30 @@ export function AuctionPresenceHeartbeat({
     async function recordPresence() {
       if (isRecordingRef.current) return;
       isRecordingRef.current = true;
+      const stuckResetTimeout = window.setTimeout(() => {
+        isRecordingRef.current = false;
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[auction-presence] heartbeat watchdog reset", { auctionId });
+        }
+      }, HEARTBEAT_STUCK_RESET_MS);
 
       try {
-        await recordAuctionPresence(auctionId);
+        const result = await recordAuctionPresence(auctionId);
+        if (result.error && process.env.NODE_ENV === "development") {
+          console.warn("[auction-presence] heartbeat failed", {
+            auctionId,
+            error: result.error,
+          });
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[auction-presence] heartbeat threw", {
+            auctionId,
+            message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+          });
+        }
       } finally {
+        window.clearTimeout(stuckResetTimeout);
         isRecordingRef.current = false;
       }
     }

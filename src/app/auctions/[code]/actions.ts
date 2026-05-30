@@ -32,11 +32,33 @@ export type CaptainActionState = {
 
 const editableAuctionStatuses = new Set<string>([AuctionStatus.DRAFT, AuctionStatus.READY]);
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
-const ACTIVE_CAPTAIN_WINDOW_MS = 45 * 1000;
+const ACTIVE_CAPTAIN_WINDOW_MS = 90 * 1000;
 const BID_GRACE_PERIOD_MS = 2000;
 const FINALIZE_SETTLE_DELAY_MS = 1000;
 const PAUSE_REASON_INACTIVE_CAPTAINS = "INACTIVE_CAPTAINS";
 const PAUSE_REASON_MANUAL = "MANUAL";
+
+type CaptainPresenceDetail = {
+  elapsedMs: number | null;
+  isActive: boolean;
+  lastSeenAt: string | null;
+  nickname: string | null;
+  teamId: string;
+  teamName: string;
+  userId: string;
+};
+
+type AutoPauseLogEvent = {
+  activeCaptainCount: number;
+  auctionCode: string;
+  auctionId: string;
+  currentRoundEndAt: string | null;
+  heartbeatTimeoutMs: number;
+  inactiveCaptains: CaptainPresenceDetail[];
+  pausedRemainingMs: number;
+  pauseReason: string;
+  requiredCaptainCount: number;
+};
 
 type AuctionRoundSnapshotPayload = {
   auction: {
@@ -201,8 +223,13 @@ export async function resumeAuction(
     return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
   }
 
+  let resumeLogMetadata: Record<string, unknown> | null = null;
+  let resumeInactiveLogMetadata: Record<string, unknown> | null = null;
+
   try {
     await prisma.$transaction(async (tx) => {
+      await lockAuctionForUpdate(tx, auctionId);
+
       const auction = await tx.auction.findUnique({
         where: { id: auctionId },
         include: {
@@ -225,6 +252,20 @@ export async function resumeAuction(
       if (!auction.currentTargetParticipantId) throw new CaptainActionError("현재 경매 대상자가 없습니다.");
 
       const now = new Date();
+      await tx.auctionParticipant.updateMany({
+        where: {
+          auctionId: auction.id,
+          userId: currentUser.id,
+        },
+        data: {
+          lastSeenAt: now,
+        },
+      });
+
+      auction.participants = auction.participants.map((participant) =>
+        participant.userId === currentUser.id ? { ...participant, lastSeenAt: now } : participant,
+      );
+
       const captainPresence = getActiveCaptainPresence({
         now,
         participants: auction.participants,
@@ -238,6 +279,15 @@ export async function resumeAuction(
       });
 
       if (!captainPresence.canRunAuction) {
+        resumeInactiveLogMetadata = {
+          activeCaptainCount: captainPresence.activeCaptainCount,
+          auctionCode,
+          heartbeatTimeoutMs: ACTIVE_CAPTAIN_WINDOW_MS,
+          inactiveCaptainTeamIds: captainPresence.inactiveCaptains.map((captain) => captain.teamId),
+          inactiveCaptainUserIds: captainPresence.inactiveCaptains.map((captain) => captain.userId),
+          reason: "RESUME_BLOCKED_INACTIVE_CAPTAINS",
+          requiredCaptainCount: captainPresence.requiredActiveCaptainCount,
+        };
         throw new CaptainActionError("입찰 가능한 팀장이 부족해 경매를 재개할 수 없습니다.");
       }
 
@@ -245,11 +295,12 @@ export async function resumeAuction(
         auction.pausedRemainingMs ?? auction.auctionSeconds * 1000,
         1000,
       );
+      const newCurrentRoundEndAt = new Date(now.getTime() + remainingMs);
       const updatedAuction = await tx.auction.update({
         where: { id: auction.id },
         data: {
           status: AuctionStatus.RUNNING,
-          currentRoundEndAt: new Date(now.getTime() + remainingMs),
+          currentRoundEndAt: newCurrentRoundEndAt,
           lastActivityAt: now,
           pausedAt: null,
           pausedRemainingMs: null,
@@ -267,9 +318,50 @@ export async function resumeAuction(
         remainingMs,
         status: updatedAuction.status,
       });
+      resumeLogMetadata = {
+        auctionCode,
+        newCurrentRoundEndAt: newCurrentRoundEndAt.toISOString(),
+        pausedRemainingMs: auction.pausedRemainingMs,
+        statusAfter: updatedAuction.status,
+        statusBefore: auction.status,
+      };
     });
+
+    if (resumeLogMetadata) {
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction resumed",
+        metadata: resumeLogMetadata,
+        scope: "auction-resume",
+        userId: currentUser.id,
+      });
+    }
   } catch (error) {
-    if (error instanceof CaptainActionError) return { error: error.message };
+    if (error instanceof CaptainActionError) {
+      if (resumeInactiveLogMetadata !== null) {
+        await logAppError({
+          auctionId,
+          level: "WARN",
+          message: "Auction resume blocked by inactive captains",
+          metadata: resumeInactiveLogMetadata,
+          scope: "auction-captain-inactive",
+          userId: currentUser.id,
+        });
+      }
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction resume rejected",
+        metadata: {
+          auctionCode,
+          error: errorToLogMetadata(error),
+        },
+        scope: "auction-resume",
+        userId: currentUser.id,
+      });
+      return { error: error.message };
+    }
     console.error("[auction-pause] Failed to resume auction", error);
     await logAppError({
       auctionId,
@@ -578,7 +670,7 @@ export async function placeBid(
         pointsLeft: bidderTeam.pointsLeft,
         teamId: bidderTeam.id,
       });
-    });
+      });
   } catch (error) {
     if (error instanceof CaptainActionError) {
       await logAppError({
@@ -1994,7 +2086,7 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
   if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
 
   try {
-    await prisma.$transaction(async (tx) => {
+    const autoPauseLogEvent = await prisma.$transaction(async (tx) => {
       const now = new Date();
       const participant = await tx.auctionParticipant.findUnique({
         where: {
@@ -2008,7 +2100,7 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
         },
       });
 
-      if (!participant) return;
+      if (!participant) return null;
 
       await tx.auctionParticipant.update({
         where: {
@@ -2024,8 +2116,41 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
         userId: currentUser.id,
       });
 
-      await pauseAuctionIfCaptainsInactive(tx, auctionId, now);
+      return pauseAuctionIfCaptainsInactive(tx, auctionId, now);
     });
+
+    if (autoPauseLogEvent !== null) {
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Inactive captains detected",
+        metadata: {
+          auctionCode: autoPauseLogEvent.auctionCode,
+          heartbeatTimeoutMs: autoPauseLogEvent.heartbeatTimeoutMs,
+          inactiveCaptains: autoPauseLogEvent.inactiveCaptains,
+          reason: "AUTO_PAUSE_INACTIVE_CAPTAINS",
+        },
+        scope: "auction-captain-inactive",
+        userId: currentUser.id,
+      });
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction auto paused",
+        metadata: {
+          activeCaptainCount: autoPauseLogEvent.activeCaptainCount,
+          auctionCode: autoPauseLogEvent.auctionCode,
+          currentRoundEndAt: autoPauseLogEvent.currentRoundEndAt,
+          inactiveCaptainTeamIds: autoPauseLogEvent.inactiveCaptains.map((captain) => captain.teamId),
+          inactiveCaptainUserIds: autoPauseLogEvent.inactiveCaptains.map((captain) => captain.userId),
+          pauseReason: autoPauseLogEvent.pauseReason,
+          pausedRemainingMs: autoPauseLogEvent.pausedRemainingMs,
+          requiredCaptainCount: autoPauseLogEvent.requiredCaptainCount,
+        },
+        scope: "auction-auto-pause",
+        userId: currentUser.id,
+      });
+    }
 
     return { success: "입장 상태를 갱신했습니다." };
   } catch (error) {
@@ -2162,7 +2287,7 @@ function getMissingPresentCaptains({
 }: {
   now: Date;
   participants: Array<{ lastSeenAt?: Date | null; userId: string }>;
-  teams: Array<{ captain?: { nickname: string } | null; captainId: string | null; name: string }>;
+  teams: Array<{ captain?: { nickname: string } | null; captainId: string | null; id: string; name: string }>;
 }) {
   return teams.flatMap((team) => {
     if (!team.captainId) return [team.name];
@@ -2180,7 +2305,7 @@ async function pauseAuctionIfCaptainsInactive(
   tx: Prisma.TransactionClient,
   auctionId: string,
   now: Date,
-) {
+): Promise<AutoPauseLogEvent | null> {
   const auction = await tx.auction.findUnique({
     where: { id: auctionId },
     include: {
@@ -2197,7 +2322,17 @@ async function pauseAuctionIfCaptainsInactive(
     },
   });
 
-  if (!auction || auction.status !== AuctionStatus.RUNNING) return;
+  if (!auction || auction.status !== AuctionStatus.RUNNING) return null;
+
+  const remainingMs = auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - now.getTime() : null;
+  if (remainingMs !== null && remainingMs <= 0) {
+    console.log("[auction-pause] skipped auto pause while round is ending", {
+      auctionId,
+      currentRoundEndAt: auction.currentRoundEndAt?.toISOString() ?? null,
+      remainingMs,
+    });
+    return null;
+  }
 
   const captainPresence = getActiveCaptainPresence({
     now,
@@ -2211,10 +2346,10 @@ async function pauseAuctionIfCaptainsInactive(
     requiredActiveCaptainCount: captainPresence.requiredActiveCaptainCount,
   });
 
-  if (captainPresence.canRunAuction) return;
+  if (captainPresence.canRunAuction) return null;
 
   const pausedRemainingMs = Math.max(
-    auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - now.getTime() : 0,
+    remainingMs ?? 0,
     0,
   );
   const updatedAuction = await tx.auction.update({
@@ -2238,6 +2373,18 @@ async function pauseAuctionIfCaptainsInactive(
     requiredActiveCaptainCount: captainPresence.requiredActiveCaptainCount,
     status: updatedAuction.status,
   });
+
+  return {
+    activeCaptainCount: captainPresence.activeCaptainCount,
+    auctionCode: auction.code,
+    auctionId: updatedAuction.id,
+    currentRoundEndAt: auction.currentRoundEndAt?.toISOString() ?? null,
+    heartbeatTimeoutMs: ACTIVE_CAPTAIN_WINDOW_MS,
+    inactiveCaptains: captainPresence.inactiveCaptains,
+    pausedRemainingMs,
+    pauseReason: updatedAuction.pauseReason ?? PAUSE_REASON_INACTIVE_CAPTAINS,
+    requiredCaptainCount: captainPresence.requiredActiveCaptainCount,
+  };
 }
 
 function getActiveCaptainPresence({
@@ -2247,22 +2394,32 @@ function getActiveCaptainPresence({
 }: {
   now: Date;
   participants: Array<{ lastSeenAt?: Date | null; userId: string }>;
-  teams: Array<{ captain?: { nickname: string } | null; captainId: string | null; name: string }>;
+  teams: Array<{ captain?: { nickname: string } | null; captainId: string | null; id: string; name: string }>;
 }) {
   const captainTeams = teams.filter((team) => team.captainId);
   const requiredActiveCaptainCount = captainTeams.length <= 1 ? captainTeams.length : 2;
-  const activeCaptainCount = captainTeams.filter((team) => {
+  const captainDetails = captainTeams.map<CaptainPresenceDetail>((team) => {
     const captainParticipant = participants.find((participant) => participant.userId === team.captainId);
+    const elapsedMs = captainParticipant?.lastSeenAt ? now.getTime() - captainParticipant.lastSeenAt.getTime() : null;
+    const isActive = typeof elapsedMs === "number" && elapsedMs <= ACTIVE_CAPTAIN_WINDOW_MS;
 
-    return Boolean(
-      captainParticipant?.lastSeenAt &&
-        now.getTime() - captainParticipant.lastSeenAt.getTime() <= ACTIVE_CAPTAIN_WINDOW_MS,
-    );
-  }).length;
+    return {
+      elapsedMs,
+      isActive,
+      lastSeenAt: captainParticipant?.lastSeenAt?.toISOString() ?? null,
+      nickname: team.captain?.nickname ?? null,
+      teamId: team.id,
+      teamName: team.name,
+      userId: team.captainId ?? "",
+    };
+  });
+  const activeCaptainCount = captainDetails.filter((captain) => captain.isActive).length;
+  const inactiveCaptains = captainDetails.filter((captain) => !captain.isActive);
 
   return {
     activeCaptainCount,
     canRunAuction: activeCaptainCount >= requiredActiveCaptainCount,
+    inactiveCaptains,
     requiredActiveCaptainCount,
   };
 }
