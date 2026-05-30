@@ -15,7 +15,6 @@ import {
 import { Button, Card, Input } from "@/components/ui";
 
 const initialState: AuctionActionState = {};
-const AUTO_FINALIZE_DELAY_MS = 2000;
 const BID_GRACE_PERIOD_MS = 2000;
 const DEFAULT_SOUND_VOLUME = 0.4;
 const END_SOUND_VOLUME_MULTIPLIER = 0.8;
@@ -506,11 +505,12 @@ export function BidControls({
     if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
 
     const finalizeRoundKey = roundKey;
+    const finalizeDelayMs = Math.max(0, BID_GRACE_PERIOD_MS + remainingMs);
 
     console.log("[auction-timer] zero reached", { auctionId, roundKey: finalizeRoundKey });
     console.log("[auction-timer] finalize scheduled", {
       auctionId,
-      delayMs: AUTO_FINALIZE_DELAY_MS,
+      delayMs: finalizeDelayMs,
       roundKey: finalizeRoundKey,
     });
 
@@ -538,9 +538,15 @@ export function BidControls({
       const formData = new FormData();
       formData.set("auctionId", auctionId);
       formData.set("auctionCode", auctionCode);
+      formData.set("targetParticipantId", currentTargetParticipantId);
+      formData.set("currentRoundEndAt", currentRoundEndAt);
 
       startAutoFinalizeTransition(async () => {
         const result = await finalizeRound(initialState, formData);
+
+        if (result.error || result.noop) {
+          autoFinalizeKeysRef.current.delete(finalizeRoundKey);
+        }
 
         if (result.error && !result.noop && result.reason !== "ROUND_NOT_ENDED") {
           console.error("[auction-auto-finalize] Failed", {
@@ -557,7 +563,7 @@ export function BidControls({
         isAutoFinalizingRef.current = false;
         router.refresh();
       });
-    }, AUTO_FINALIZE_DELAY_MS);
+    }, finalizeDelayMs);
 
     return () => {
       window.clearTimeout(timeout);
@@ -571,6 +577,7 @@ export function BidControls({
     hasTarget,
     isOwner,
     isRunning,
+    remainingMs,
     remainingSeconds,
     router,
     roundKey,
@@ -668,6 +675,8 @@ export function BidControls({
           <input name="auctionId" type="hidden" value={auctionId} />
           <input name="auctionCode" type="hidden" value={auctionCode} />
           <input name="forceFinalize" type="hidden" value="true" />
+          <input name="targetParticipantId" type="hidden" value={currentTargetParticipantId ?? ""} />
+          <input name="currentRoundEndAt" type="hidden" value={currentRoundEndAt ?? ""} />
           <Button disabled={isFinalizing || isAutoFinalizing} type="submit" variant={isTimeOver ? "primary" : "secondary"}>
             {isTimeOver ? "라운드 종료 처리" : "라운드 강제 종료"}
           </Button>

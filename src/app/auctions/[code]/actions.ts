@@ -383,6 +383,8 @@ export async function placeBid(
 
   try {
     await prisma.$transaction(async (tx) => {
+      await lockAuctionForUpdate(tx, auctionId);
+
       const auction = await tx.auction.findUnique({
         where: { id: auctionId },
         include: { teams: true, participants: true },
@@ -620,11 +622,30 @@ export async function finalizeRound(
   const auctionId = stringValue(formData.get("auctionId"));
   const auctionCode = stringValue(formData.get("auctionCode"));
   const forceFinalize = stringValue(formData.get("forceFinalize")) === "true";
+  const submittedTargetParticipantId = stringValue(formData.get("targetParticipantId"));
+  const submittedRoundEndAt = stringValue(formData.get("currentRoundEndAt"));
+  let finalizeNoopMetadata: Record<string, unknown> | null = null;
+
+  function finalizeNoop(reason: string, metadata: Record<string, unknown>): AuctionActionState {
+    finalizeNoopMetadata = {
+      auctionCode,
+      forceFinalize,
+      gracePeriodMs: BID_GRACE_PERIOD_MS,
+      reason,
+      submittedRoundEndAt: submittedRoundEndAt || null,
+      submittedTargetParticipantId: submittedTargetParticipantId || null,
+      ...metadata,
+    };
+
+    return { noop: true, reason, success: "라운드 종료 요청이 이미 처리되었습니다." };
+  }
 
   if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await lockAuctionForUpdate(tx, auctionId);
+
       const auction = await tx.auction.findUnique({
         where: { id: auctionId },
         include: { teams: true, participants: true },
@@ -632,28 +653,68 @@ export async function finalizeRound(
 
       if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
       if (auction.ownerId !== currentUser.id) throw new CaptainActionError("방장만 라운드를 종료할 수 있습니다.");
+      const now = new Date();
+      const remainingMs = auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - now.getTime() : null;
+      const baseNoopMetadata = {
+        auctionStatus: auction.status,
+        currentBidId: auction.currentBidId,
+        currentRoundEndAt: auction.currentRoundEndAt?.toISOString() ?? null,
+        currentTargetParticipantId: auction.currentTargetParticipantId,
+        remainingMs,
+      };
+
       if (auction.status === AuctionStatus.FINISHED) {
-        return { noop: true, reason: "AUCTION_ALREADY_FINISHED", success: "이미 종료된 경매입니다." };
+        return finalizeNoop("AUCTION_ALREADY_FINISHED", baseNoopMetadata);
       }
-      if (auction.status !== AuctionStatus.RUNNING) throw new CaptainActionError("진행 중인 경매가 아닙니다.");
+      if (auction.status !== AuctionStatus.RUNNING) {
+        if (!forceFinalize) {
+          return finalizeNoop("AUCTION_NOT_RUNNING", baseNoopMetadata);
+        }
+
+        throw new CaptainActionError("진행 중인 경매가 아닙니다.");
+      }
       if (!auction.currentTargetParticipantId) {
-        return { noop: true, reason: "NO_CURRENT_TARGET", success: "처리할 라운드가 없습니다." };
+        return finalizeNoop("NO_CURRENT_TARGET", baseNoopMetadata);
       }
-      if (!forceFinalize && auction.currentRoundEndAt && auction.currentRoundEndAt.getTime() > Date.now()) {
-        return {
-          error: "아직 라운드 시간이 종료되지 않았습니다.",
-          reason: "ROUND_NOT_ENDED",
-        };
+      if (!auction.currentRoundEndAt) {
+        if (!forceFinalize) {
+          return finalizeNoop("NO_CURRENT_ROUND_END_AT", baseNoopMetadata);
+        }
+
+        throw new CaptainActionError("현재 라운드 종료 시간이 없습니다.");
+      }
+      if (submittedTargetParticipantId && submittedTargetParticipantId !== auction.currentTargetParticipantId) {
+        return finalizeNoop("STALE_TARGET_PARTICIPANT", baseNoopMetadata);
+      }
+      if (
+        !forceFinalize &&
+        submittedRoundEndAt &&
+        submittedRoundEndAt !== auction.currentRoundEndAt.toISOString()
+      ) {
+        return finalizeNoop("STALE_ROUND_END_AT", baseNoopMetadata);
+      }
+      if (!forceFinalize) {
+        const finalizeDeadline = new Date(auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS);
+
+        if (finalizeDeadline.getTime() > now.getTime()) {
+          return finalizeNoop("ROUND_NOT_ENDED", {
+            ...baseNoopMetadata,
+            finalizeDeadline: finalizeDeadline.toISOString(),
+          });
+        }
       }
 
       const target = auction.participants.find(
         (participant) => participant.id === auction.currentTargetParticipantId,
       );
       if (!target) {
-        return { noop: true, reason: "TARGET_NOT_FOUND", success: "처리할 라운드가 없습니다." };
+        return finalizeNoop("TARGET_NOT_FOUND", baseNoopMetadata);
       }
       if (target.status !== ParticipantStatus.BIDDING) {
-        return { noop: true, reason: "ROUND_ALREADY_FINALIZED", success: "이미 처리된 라운드입니다." };
+        return finalizeNoop("ROUND_ALREADY_FINALIZED", {
+          ...baseNoopMetadata,
+          targetStatus: target.status,
+        });
       }
 
       if (auction.currentBidId) {
@@ -803,6 +864,23 @@ export async function finalizeRound(
 
       return { success: "라운드를 종료했습니다." };
     });
+
+    if (result.noop) {
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction finalize noop",
+        metadata: finalizeNoopMetadata ?? {
+          auctionCode,
+          forceFinalize,
+          reason: result.reason ?? "UNKNOWN_NOOP",
+          submittedRoundEndAt: submittedRoundEndAt || null,
+          submittedTargetParticipantId: submittedTargetParticipantId || null,
+        },
+        scope: "auction-finalize-noop",
+        userId: currentUser.id,
+      });
+    }
 
     revalidatePath(`/auctions/${auctionCode}`);
     return result;
@@ -2018,6 +2096,12 @@ function stringValue(value: FormDataEntryValue | null) {
 function numberValue(value: FormDataEntryValue | null) {
   const parsed = Number(stringValue(value));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function lockAuctionForUpdate(tx: Prisma.TransactionClient, auctionId: string) {
+  if (!auctionId) return;
+
+  await tx.$queryRaw`SELECT id FROM "Auction" WHERE id = ${auctionId} FOR UPDATE`;
 }
 
 function getCappedExtendedRoundEndAt({

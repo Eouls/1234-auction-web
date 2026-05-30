@@ -179,6 +179,24 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   const isRunning = auction.status === AuctionStatus.RUNNING;
   const isPaused = auction.status === AuctionStatus.PAUSED;
   const isFinished = auction.status === AuctionStatus.FINISHED;
+  const staleRunningRemainingMs =
+    isRunning && auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - Date.now() : null;
+  if (typeof staleRunningRemainingMs === "number" && staleRunningRemainingMs < -10_000) {
+    await logAppError({
+      auctionId: auction.id,
+      level: "WARN",
+      message: "Stale running auction round detected",
+      metadata: {
+        auctionStatus: auction.status,
+        currentBidId: auction.currentBidId,
+        currentRoundEndAt: auction.currentRoundEndAt?.toISOString() ?? null,
+        currentTargetParticipantId: auction.currentTargetParticipantId,
+        remainingMs: staleRunningRemainingMs,
+      },
+      scope: "auction-stale-running",
+      userId: currentUser.id,
+    });
+  }
   const canRollbackPreviousRound = auction.roundSnapshots.some(
     (snapshot) => snapshot.targetParticipantId !== auction.currentTargetParticipantId,
   );
