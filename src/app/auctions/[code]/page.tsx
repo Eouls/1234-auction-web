@@ -181,7 +181,7 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
   const isFinished = auction.status === AuctionStatus.FINISHED;
   const staleRunningRemainingMs =
     isRunning && auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - Date.now() : null;
-  if (typeof staleRunningRemainingMs === "number" && staleRunningRemainingMs < -10_000) {
+  if (typeof staleRunningRemainingMs === "number" && staleRunningRemainingMs < -8_000) {
     await logAppError({
       auctionId: auction.id,
       level: "WARN",

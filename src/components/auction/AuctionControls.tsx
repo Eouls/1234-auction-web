@@ -16,6 +16,7 @@ import { Button, Card, Input } from "@/components/ui";
 
 const initialState: AuctionActionState = {};
 const BID_GRACE_PERIOD_MS = 2000;
+const FINALIZE_SETTLE_DELAY_MS = 1000;
 const DEFAULT_SOUND_VOLUME = 0.4;
 const END_SOUND_VOLUME_MULTIPLIER = 0.8;
 
@@ -205,8 +206,8 @@ export function BidControls({
   const [soundVolume, setSoundVolume] = useState(DEFAULT_SOUND_VOLUME);
   const [isSoundSettingsLoaded, setIsSoundSettingsLoaded] = useState(false);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
+  const autoFinalizeInFlightKeyRef = useRef<string | null>(null);
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
-  const isAutoFinalizingRef = useRef(false);
   const playedSecondKeysRef = useRef<Set<string>>(new Set());
   const previousBidDisabledDebugSignatureRef = useRef<string | null>(null);
   const previousBidSignatureRef = useRef<string | null>(null);
@@ -502,16 +503,18 @@ export function BidControls({
   useEffect(() => {
     if (!hasMounted || !isOwner || !isRunning || !hasTarget || !currentTargetParticipantId || !currentRoundEndAt) return;
     if (remainingSeconds > 0) return;
-    if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(roundKey)) return;
+    if (autoFinalizeKeysRef.current.has(roundKey)) return;
 
     const finalizeRoundKey = roundKey;
-    const finalizeDelayMs = Math.max(0, BID_GRACE_PERIOD_MS + remainingMs);
+    const finalizeDelayMs = Math.max(0, BID_GRACE_PERIOD_MS + FINALIZE_SETTLE_DELAY_MS + remainingMs);
 
     console.log("[auction-timer] zero reached", { auctionId, roundKey: finalizeRoundKey });
     console.log("[auction-timer] finalize scheduled", {
       auctionId,
       delayMs: finalizeDelayMs,
+      gracePeriodMs: BID_GRACE_PERIOD_MS,
       roundKey: finalizeRoundKey,
+      settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
     });
 
     const timeout = window.setTimeout(() => {
@@ -523,16 +526,20 @@ export function BidControls({
         });
         return;
       }
-      if (isAutoFinalizingRef.current || autoFinalizeKeysRef.current.has(finalizeRoundKey)) {
+      if (
+        autoFinalizeInFlightKeyRef.current === finalizeRoundKey ||
+        autoFinalizeKeysRef.current.has(finalizeRoundKey)
+      ) {
         console.log("[auction-timer] finalize skipped because round extended", {
           auctionId,
+          inFlightRoundKey: autoFinalizeInFlightKeyRef.current,
           roundKey: finalizeRoundKey,
         });
         return;
       }
 
       autoFinalizeKeysRef.current.add(finalizeRoundKey);
-      isAutoFinalizingRef.current = true;
+      autoFinalizeInFlightKeyRef.current = finalizeRoundKey;
       console.log("[auction-timer] finalize executing", { auctionId, roundKey: finalizeRoundKey });
 
       const formData = new FormData();
@@ -560,7 +567,9 @@ export function BidControls({
           });
         }
 
-        isAutoFinalizingRef.current = false;
+        if (autoFinalizeInFlightKeyRef.current === finalizeRoundKey) {
+          autoFinalizeInFlightKeyRef.current = null;
+        }
         router.refresh();
       });
     }, finalizeDelayMs);

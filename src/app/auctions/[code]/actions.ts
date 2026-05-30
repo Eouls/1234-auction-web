@@ -34,6 +34,7 @@ const editableAuctionStatuses = new Set<string>([AuctionStatus.DRAFT, AuctionSta
 const CAPTAIN_PRESENCE_WINDOW_MS = 30 * 1000;
 const ACTIVE_CAPTAIN_WINDOW_MS = 45 * 1000;
 const BID_GRACE_PERIOD_MS = 2000;
+const FINALIZE_SETTLE_DELAY_MS = 1000;
 const PAUSE_REASON_INACTIVE_CAPTAINS = "INACTIVE_CAPTAINS";
 const PAUSE_REASON_MANUAL = "MANUAL";
 
@@ -632,6 +633,7 @@ export async function finalizeRound(
       forceFinalize,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       reason,
+      settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
       submittedRoundEndAt: submittedRoundEndAt || null,
       submittedTargetParticipantId: submittedTargetParticipantId || null,
       ...metadata,
@@ -694,12 +696,15 @@ export async function finalizeRound(
         return finalizeNoop("STALE_ROUND_END_AT", baseNoopMetadata);
       }
       if (!forceFinalize) {
-        const finalizeDeadline = new Date(auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS);
+        const finalizeDeadline = new Date(
+          auction.currentRoundEndAt.getTime() + BID_GRACE_PERIOD_MS + FINALIZE_SETTLE_DELAY_MS,
+        );
 
         if (finalizeDeadline.getTime() > now.getTime()) {
           return finalizeNoop("ROUND_NOT_ENDED", {
             ...baseNoopMetadata,
             finalizeDeadline: finalizeDeadline.toISOString(),
+            settleDelayMs: FINALIZE_SETTLE_DELAY_MS,
           });
         }
       }
