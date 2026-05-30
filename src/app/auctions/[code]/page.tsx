@@ -290,7 +290,12 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
         enabled={!isFinished && auction.status !== AuctionStatus.CANCELED}
         isParticipant={isParticipant}
       />
-      <AuctionRoomRealtime auctionId={auction.id} />
+      <AuctionRoomRealtime
+        auctionId={auction.id}
+        auctionStatus={auction.status}
+        currentRoundEndAt={auction.currentRoundEndAt?.toISOString() ?? null}
+        currentTargetParticipantId={auction.currentTargetParticipantId}
+      />
       <AuctionStartAutoScroll isAuctionRunning={isRunning} targetId="auction-main-panel" />
       <PageHeader
         eyebrow={`Room ${auction.code}`}

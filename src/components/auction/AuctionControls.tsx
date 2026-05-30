@@ -206,6 +206,7 @@ export function BidControls({
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const [soundVolume, setSoundVolume] = useState(DEFAULT_SOUND_VOLUME);
   const [isSoundSettingsLoaded, setIsSoundSettingsLoaded] = useState(false);
+  const [isClientSyncBlocked, setIsClientSyncBlocked] = useState(false);
   const autoFinalizeKeysRef = useRef<Set<string>>(new Set());
   const autoFinalizeInFlightKeyRef = useRef<string | null>(null);
   const endSoundPlayedKeysRef = useRef<Set<string>>(new Set());
@@ -254,7 +255,14 @@ export function BidControls({
     hasTarget &&
     remainingMs <= -BID_GRACE_PERIOD_MS &&
     remainingMs >= -BID_ACCEPT_WINDOW_MS;
-  const baseBidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
+  const baseBidDisabled =
+    !canBid ||
+    isCurrentBidderTeam ||
+    !isRunning ||
+    !hasTarget ||
+    isBidGraceExpired ||
+    isClientSyncBlocked ||
+    isBidding;
   const directBidAmount = Number(directAmount);
   const debugRemainingSeconds = Math.ceil(remainingMs / 1000);
   const hasEnoughPointsForDirectBid =
@@ -288,6 +296,7 @@ export function BidControls({
     if (isTeamFull) reasons.push("team-full");
     if (isBidGraceExpired) reasons.push("bid-grace-expired");
     if (isSettleDelayActive) reasons.push("settle-delay");
+    if (isClientSyncBlocked) reasons.push("client-sync-blocked");
     if (isBidding) reasons.push("bidding-pending");
 
     return reasons;
@@ -297,6 +306,7 @@ export function BidControls({
     hasTarget,
     isBidGraceExpired,
     isBidding,
+    isClientSyncBlocked,
     isCurrentBidderTeam,
     isPaused,
     isRunning,
@@ -324,6 +334,24 @@ export function BidControls({
     const volume = clampVolume(soundVolume);
     window.localStorage.setItem("auction-countdown-volume", String(volume));
   }, [isSoundSettingsLoaded, soundVolume]);
+
+  useEffect(() => {
+    function handleSyncState(event: Event) {
+      const detail = (event as CustomEvent<{
+        auctionId?: string;
+        isRealtimeUnstable?: boolean;
+      }>).detail;
+
+      if (detail?.auctionId !== auctionId) return;
+      setIsClientSyncBlocked(Boolean(detail.isRealtimeUnstable));
+    }
+
+    window.addEventListener("auction-sync-state", handleSyncState);
+
+    return () => {
+      window.removeEventListener("auction-sync-state", handleSyncState);
+    };
+  }, [auctionId]);
 
   useEffect(() => {
     if (!bidState.success) return;
@@ -367,6 +395,7 @@ export function BidControls({
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       hasEnoughPointsForDirectBid,
       isBidGraceExpired,
+      isClientSyncBlocked,
       isCurrentBidderTeam,
     });
     if (previousBidDisabledDebugSignatureRef.current === debugSignature) return;
@@ -380,6 +409,7 @@ export function BidControls({
       hasEnoughPoints: hasEnoughPointsForDirectBid,
       isCaptain: Boolean(currentUserTeamId),
       isBidGraceExpired,
+      isClientSyncBlocked,
       isCurrentHighestBidder: isCurrentBidderTeam,
       isPaused,
       isRunning,
@@ -395,6 +425,7 @@ export function BidControls({
     disabledReasons,
     isBidGraceExpired,
     hasEnoughPointsForDirectBid,
+    isClientSyncBlocked,
     isCurrentBidderTeam,
     isPaused,
     isRunning,
@@ -716,6 +747,9 @@ export function BidControls({
       {!canBid && !isTeamFull ? <p className="mt-3 text-xs text-slate-500">팀장만 입찰할 수 있습니다.</p> : null}
       {isCurrentBidderTeam ? (
         <p className="mt-3 text-xs text-amber-200">현재 최고 입찰 팀은 추가 입찰할 수 없습니다.</p>
+      ) : null}
+      {isClientSyncBlocked ? (
+        <p className="mt-3 text-xs text-amber-200">경매 상태를 동기화 중입니다. 잠시 후 다시 시도해주세요.</p>
       ) : null}
       {isTeamFull ? <p className="mt-3 text-xs text-amber-200">팀 정원이 가득 찼습니다.</p> : null}
       {bidState.error ? <p className="mt-3 text-sm text-rose-300">{bidState.error}</p> : null}
