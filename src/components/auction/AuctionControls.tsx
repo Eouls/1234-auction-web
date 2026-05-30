@@ -246,13 +246,13 @@ export function BidControls({
   }, [currentRoundEndAt, hasMounted]);
 
   const isTimeOver = hasMounted ? remainingSeconds <= 0 : true;
-  const isBidGraceExpired = hasMounted ? remainingMs < -BID_GRACE_PERIOD_MS : true;
+  const isBidGraceExpired = hasMounted ? remainingMs <= -BID_GRACE_PERIOD_MS : true;
   const isGracePeriodActive = isTimeOver && isRunning && hasTarget && !isBidGraceExpired;
   const isSettleDelayActive =
     isTimeOver &&
     isRunning &&
     hasTarget &&
-    remainingMs < -BID_GRACE_PERIOD_MS &&
+    remainingMs <= -BID_GRACE_PERIOD_MS &&
     remainingMs >= -BID_ACCEPT_WINDOW_MS;
   const baseBidDisabled = !canBid || isCurrentBidderTeam || !isRunning || !hasTarget || isBidGraceExpired || isBidding;
   const directBidAmount = Number(directAmount);
@@ -286,7 +286,7 @@ export function BidControls({
     if (isPaused) reasons.push("paused");
     if (!hasTarget) reasons.push("no-target");
     if (isTeamFull) reasons.push("team-full");
-    if (isBidGraceExpired) reasons.push("grace-expired");
+    if (isBidGraceExpired) reasons.push("bid-grace-expired");
     if (isSettleDelayActive) reasons.push("settle-delay");
     if (isBidding) reasons.push("bidding-pending");
 
@@ -364,7 +364,9 @@ export function BidControls({
       currentUserTeamId,
       debugRemainingSeconds,
       disabledReasons,
+      gracePeriodMs: BID_GRACE_PERIOD_MS,
       hasEnoughPointsForDirectBid,
+      isBidGraceExpired,
       isCurrentBidderTeam,
     });
     if (previousBidDisabledDebugSignatureRef.current === debugSignature) return;
@@ -374,8 +376,10 @@ export function BidControls({
       auctionId,
       currentBidTeamId,
       disabledReasons,
+      gracePeriodMs: BID_GRACE_PERIOD_MS,
       hasEnoughPoints: hasEnoughPointsForDirectBid,
       isCaptain: Boolean(currentUserTeamId),
+      isBidGraceExpired,
       isCurrentHighestBidder: isCurrentBidderTeam,
       isPaused,
       isRunning,
@@ -389,6 +393,7 @@ export function BidControls({
     currentUserTeamId,
     debugRemainingSeconds,
     disabledReasons,
+    isBidGraceExpired,
     hasEnoughPointsForDirectBid,
     isCurrentBidderTeam,
     isPaused,
