@@ -92,6 +92,10 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
     notFound();
   }
 
+  if (auction.deletedAt) {
+    redirect("/my-auctions");
+  }
+
   const isOwner = auction.ownerId === currentUser.id;
   const isParticipant = auction.participants.some((participant) => participant.userId === currentUser.id);
 

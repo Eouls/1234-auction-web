@@ -144,6 +144,10 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
     notFound();
   }
 
+  if (auction.deletedAt) {
+    redirect("/my-auctions");
+  }
+
   console.log("[auction-page] loaded auction", {
     auctionId: auction.id,
     currentBidId: auction.currentBidId,

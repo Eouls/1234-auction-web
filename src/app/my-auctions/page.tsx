@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuctionStatus } from "@/generated/prisma/client";
+import { AuctionDeleteButton } from "@/components/auction/AuctionDeleteButton";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
@@ -28,6 +29,7 @@ export default async function MyAuctionsPage() {
 
   const auctions = await prisma.auction.findMany({
     where: {
+      deletedAt: null,
       OR: [
         { ownerId: currentUser.id },
         {
@@ -61,6 +63,7 @@ export default async function MyAuctionsPage() {
       <section className="mt-8 grid gap-4 lg:grid-cols-3">
         {auctions.map((auction) => {
           const isEnded = auction.status === AuctionStatus.FINISHED || auction.status === AuctionStatus.CANCELED;
+          const canDelete = auction.ownerId === currentUser.id && auction.status !== AuctionStatus.RUNNING;
 
           return (
             <Card key={auction.id} className="p-5">
@@ -79,14 +82,17 @@ export default async function MyAuctionsPage() {
                 <Info label="참가자 수" value={`${auction._count.participants}`} />
                 <Info label="방 코드" value={auction.code} />
               </dl>
-              <Link
-                className="mt-5 block"
-                href={isEnded ? `/auctions/${auction.code}/result` : `/auctions/${auction.code}`}
-              >
-                <Button className="w-full" type="button" variant={isEnded ? "secondary" : "primary"}>
-                  {isEnded ? "결과 확인" : "입장하기"}
-                </Button>
-              </Link>
+              <div className="mt-5 grid gap-2">
+                <Link
+                  className="block"
+                  href={isEnded ? `/auctions/${auction.code}/result` : `/auctions/${auction.code}`}
+                >
+                  <Button className="w-full" type="button" variant={isEnded ? "secondary" : "primary"}>
+                    {isEnded ? "결과 확인" : "입장하기"}
+                  </Button>
+                </Link>
+                {canDelete ? <AuctionDeleteButton auctionCode={auction.code} auctionId={auction.id} /> : null}
+              </div>
             </Card>
           );
         })}

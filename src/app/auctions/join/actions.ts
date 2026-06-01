@@ -47,6 +47,7 @@ export async function joinAuction(
     },
     select: {
       code: true,
+      deletedAt: true,
       id: true,
       status: true,
       participants: {
@@ -63,6 +64,10 @@ export async function joinAuction(
 
   if (!auction) {
     return { error: "존재하지 않는 경매방입니다." };
+  }
+
+  if (auction.deletedAt) {
+    return { error: "삭제된 경매방입니다." };
   }
 
   if (auction.status === AuctionStatus.FINISHED || auction.status === AuctionStatus.CANCELED) {

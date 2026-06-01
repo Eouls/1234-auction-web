@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
-type AppLogLevel = "ERROR" | "WARN";
+type AppLogLevel = "ERROR" | "INFO" | "WARN";
 
 type LogAppErrorInput = {
   auctionId?: string | null;
