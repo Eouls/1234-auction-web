@@ -18,10 +18,16 @@ const navItems = [
 type AppShellProps = {
   children: ReactNode;
   allowIncompleteOnboarding?: boolean;
+  activeHref?: string;
   contentClassName?: string;
 };
 
-export async function AppShell({ children, allowIncompleteOnboarding = false, contentClassName }: AppShellProps) {
+export async function AppShell({
+  children,
+  activeHref,
+  allowIncompleteOnboarding = false,
+  contentClassName,
+}: AppShellProps) {
   const supabase = await createClient();
   const {
     data: { user: authUser },
@@ -56,15 +62,25 @@ export async function AppShell({ children, allowIncompleteOnboarding = false, co
           </Link>
           <div className="flex flex-wrap items-center gap-2">
             <nav className="flex flex-wrap gap-2 text-sm text-[var(--foreground-muted)]">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="rounded-md px-3 py-2 transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {navItems.map((item) => {
+                const isActive = activeHref === item.href;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "rounded-full border px-3 py-2 transition",
+                      isActive
+                        ? "border-[var(--border-strong)] bg-[var(--card)] text-[var(--foreground)] shadow-sm shadow-[var(--shadow)]"
+                        : "border-transparent hover:border-[var(--border)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
             </nav>
             <ThemeToggle />
             <LogoutButton />
