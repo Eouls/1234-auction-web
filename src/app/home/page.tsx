@@ -37,37 +37,20 @@ const cards = [
   },
 ];
 
-const flowItems = ["방 생성", "팀장 설정", "실시간 입찰", "결과 확인"];
-
 export default function HomePage() {
   return (
-    <AppShell activeHref="/home">
+    <AppShell>
       <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl shadow-[var(--shadow)] md:p-8">
-        <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr] lg:items-end">
-          <div>
-            <p className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-[var(--foreground-subtle)]">
-              1234 Auction Dashboard
-            </p>
-            <h1 className="mt-5 max-w-3xl text-3xl font-black tracking-tight text-[var(--foreground)] md:text-5xl">
-              디스코드 멤버들과 내전 팀 경매를 빠르게 시작하세요
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--foreground-muted)]">
-              팀장들이 포인트로 참가자를 입찰하고, 롤 계정 티어와 모스트 챔피언을 보며 팀을 구성하는 실시간 LoL 내전 경매 서비스입니다.
-            </p>
-          </div>
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--foreground-subtle)]">오늘의 흐름</p>
-            <div className="mt-4 grid gap-2">
-              {flowItems.map((item, index) => (
-                <div key={item} className="flex items-center gap-3 rounded-md bg-[var(--card)] px-3 py-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-full border border-[var(--border)] text-xs font-black text-[var(--foreground)]">
-                    {index + 1}
-                  </span>
-                  <span className="text-sm font-semibold text-[var(--foreground)]">{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="max-w-3xl">
+          <p className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-[var(--foreground-subtle)]">
+            1234 Auction Dashboard
+          </p>
+          <h1 className="mt-5 text-3xl font-black tracking-tight text-[var(--foreground)] md:text-5xl">
+            디스코드 멤버들과 내전 팀 경매를 빠르게 시작하세요
+          </h1>
+          <p className="mt-4 text-base leading-7 text-[var(--foreground-muted)]">
+            팀장들이 포인트로 참가자를 입찰하고, 롤 계정 티어와 모스트 챔피언을 보며 팀을 구성하는 실시간 LoL 내전 경매 서비스입니다.
+          </p>
         </div>
       </section>
 

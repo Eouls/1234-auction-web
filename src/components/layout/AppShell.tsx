@@ -2,29 +2,20 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+import { AppNavigation } from "@/components/layout/AppNavigation";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { cn } from "@/lib/cn";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
-const navItems = [
-  { href: "/home", label: "홈" },
-  { href: "/auctions/create", label: "경매 생성" },
-  { href: "/auctions/join", label: "경매 참가" },
-  { href: "/my-auctions", label: "나의 경매" },
-  { href: "/profile", label: "프로필" },
-];
-
 type AppShellProps = {
   children: ReactNode;
   allowIncompleteOnboarding?: boolean;
-  activeHref?: string;
   contentClassName?: string;
 };
 
 export async function AppShell({
   children,
-  activeHref,
   allowIncompleteOnboarding = false,
   contentClassName,
 }: AppShellProps) {
@@ -61,27 +52,7 @@ export async function AppShell({
             1234 <span className="text-[var(--accent-muted)]">Auction</span>
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            <nav className="flex flex-wrap gap-2 text-sm text-[var(--foreground-muted)]">
-              {navItems.map((item) => {
-                const isActive = activeHref === item.href;
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={isActive ? "page" : undefined}
-                    className={cn(
-                      "rounded-full border px-3 py-2 transition",
-                      isActive
-                        ? "border-[var(--border-strong)] bg-[var(--card)] text-[var(--foreground)] shadow-sm shadow-[var(--shadow)]"
-                        : "border-transparent hover:border-[var(--border)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]",
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
+            <AppNavigation />
             <ThemeToggle />
             <LogoutButton />
           </div>
