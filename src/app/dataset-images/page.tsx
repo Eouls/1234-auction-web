@@ -16,6 +16,45 @@ type DatasetImagesPageProps = {
 
 const statusFilters = ["ALL", "COLLECTED", "NEEDS_LABELING", "LABELED", "EXCLUDED"] as const;
 const screenTypeFilters = ["ALL", "SUMMARY_RESULT", "DETAIL_RESULT", "UNKNOWN"] as const;
+const primaryLabelClasses = [
+  {
+    description: "한 플레이어의 결과 행 전체입니다. 챔피언, 닉네임, KDA, CS, 딜량이 들어간 가로 행을 한 박스로 잡습니다.",
+    name: "player_row",
+  },
+  {
+    description: "플레이어 행 안의 챔피언 초상화/아이콘 영역입니다. 아이콘 배경 여백은 최소화하고 실제 아이콘을 중심으로 잡습니다.",
+    name: "champion_icon",
+  },
+  {
+    description: "팀 또는 화면의 승리/패배 결과 표시 영역입니다. 승리/패배 텍스트나 결과 배지를 포함해 잡습니다.",
+    name: "team_result",
+  },
+];
+const secondaryLabelClasses = [
+  {
+    description: "닉네임 텍스트가 표시되는 영역입니다.",
+    name: "nickname_area",
+  },
+  {
+    description: "킬/데스/어시스트 숫자 묶음 영역입니다.",
+    name: "kda_area",
+  },
+  {
+    description: "CS 또는 미니언 처치 수가 표시되는 영역입니다.",
+    name: "cs_area",
+  },
+  {
+    description: "챔피언에게 가한 피해량 등 딜량 숫자 영역입니다.",
+    name: "damage_area",
+  },
+];
+const roboflowChecklist = [
+  "결과창 전체가 잘 보이는 이미지인지 확인",
+  "일반 결과창/상세 결과창 screenType이 맞는지 확인",
+  "해상도가 너무 낮거나 심하게 흐리지 않은지 확인",
+  "중복 이미지가 아닌지 확인",
+  "status가 NEEDS_LABELING인지 확인",
+];
 
 export const metadata = {
   title: "데이터셋 이미지 관리 | 1234 Auction",
@@ -127,21 +166,15 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
       />
 
       <Card className="mt-6 p-4">
-        <div className="mb-5 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="mb-5 grid gap-3 xl:grid-cols-[1.25fr_0.95fr]">
           <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
-            <p className="text-sm font-black text-[var(--foreground)]">라벨링 가이드</p>
+            <p className="text-sm font-black text-[var(--foreground)]">Roboflow 라벨링 가이드</p>
             <p className="mt-1 text-xs leading-5 text-[var(--foreground-muted)]">
-              처음부터 챔피언 170개를 분류하지 않고, 결과창 영역과 아이콘 위치를 먼저 탐지하는 데이터셋으로 정리합니다.
+              1차 라벨링에서는 결과창 구조 탐지를 우선합니다. 챔피언 170개를 바로 분류하지 않고, 플레이어 행과 챔피언 아이콘 위치를 먼저 안정적으로 잡습니다.
             </p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {["player_row", "champion_icon", "nickname_area", "kda_area", "cs_area", "damage_area", "team_result"].map((label) => (
-                <span
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] font-semibold text-[var(--foreground)]"
-                  key={label}
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <LabelClassList classes={primaryLabelClasses} title="1차 필수 클래스" />
+              <LabelClassList classes={secondaryLabelClasses} title="2차 확장 후보" />
             </div>
           </div>
           <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
@@ -152,6 +185,15 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
               <div><dt className="inline font-bold text-[var(--foreground)]">LABELED</dt><dd className="inline">: 라벨링 완료</dd></div>
               <div><dt className="inline font-bold text-[var(--foreground)]">EXCLUDED</dt><dd className="inline">: 제외</dd></div>
             </dl>
+            <p className="mt-4 text-sm font-black text-[var(--foreground)]">Roboflow 업로드 전 체크리스트</p>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-[var(--foreground-muted)]">
+              {roboflowChecklist.map((item) => (
+                <li className="flex gap-2" key={item}>
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-muted)]" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
@@ -206,6 +248,33 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
         </Card>
       )}
     </AppShell>
+  );
+}
+
+function LabelClassList({
+  classes,
+  title,
+}: {
+  classes: Array<{
+    description: string;
+    name: string;
+  }>;
+  title: string;
+}) {
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
+      <p className="text-xs font-black uppercase tracking-wide text-[var(--foreground)]">{title}</p>
+      <dl className="mt-2 space-y-2">
+        {classes.map((labelClass) => (
+          <div key={labelClass.name}>
+            <dt className="w-fit rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-[11px] font-black text-[var(--foreground)]">
+              {labelClass.name}
+            </dt>
+            <dd className="mt-1 text-xs leading-5 text-[var(--foreground-muted)]">{labelClass.description}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
