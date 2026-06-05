@@ -76,6 +76,9 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
       internalMatches: {
         orderBy: [{ gameNumber: "desc" }, { createdAt: "desc" }],
         include: {
+          teams: {
+            orderBy: { side: "asc" },
+          },
           players: {
             orderBy: { createdAt: "asc" },
             include: {
@@ -272,6 +275,8 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
                         dateStyle: "medium",
                         timeStyle: "short",
                       }).format(match.playedAt)}
+                      {` · ${match.sourceType}`}
+                      {match.teams.length ? ` · ${match.teams.length}팀 / ${match.players.length}명` : ` · ${match.players.length}명`}
                     </p>
                   </div>
                   {match.screenshotUrl ? (
@@ -304,6 +309,8 @@ export default async function AuctionResultPage({ params }: AuctionResultPagePro
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-300">
                         {player.kills ?? "-"} / {player.deaths ?? "-"} / {player.assists ?? "-"}
+                        {player.cs !== null ? ` · CS ${player.cs}` : ""}
+                        {player.damage !== null ? ` · 딜량 ${player.damage}` : ""}
                       </p>
                     </div>
                   ))}

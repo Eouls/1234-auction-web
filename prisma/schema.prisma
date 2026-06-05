@@ -41,27 +41,28 @@ enum ChatType {
 }
 
 model User {
-  id                    String                @id @default(cuid())
-  authUserId            String                @unique
-  discordId             String                @unique
-  discordUsername       String?
-  discordAvatarUrl      String?
-  nickname              String                @unique
-  customProfileImageUrl String?
-  bio                   String?
-  mainRole              LolRole?
-  subRole               LolRole?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
-  lolAccounts           LolAccount[]
-  lolStats              UserLolStats?
-  ownedAuctions         Auction[]             @relation("AuctionOwner")
-  auctionParticipants   AuctionParticipant[]
-  captainTeams          AuctionTeam[]         @relation("TeamCaptain")
-  chatMessages          ChatMessage[]
-  internalMatchPlayers  InternalMatchPlayer[]
-  auctionStats          UserAuctionStats?
-  auctionSoldRecords    AuctionSoldRecord[]
+  id                     String                @id @default(cuid())
+  authUserId             String                @unique
+  discordId              String                @unique
+  discordUsername        String?
+  discordAvatarUrl       String?
+  nickname               String                @unique
+  customProfileImageUrl  String?
+  bio                    String?
+  mainRole               LolRole?
+  subRole                LolRole?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  lolAccounts            LolAccount[]
+  lolStats               UserLolStats?
+  ownedAuctions          Auction[]             @relation("AuctionOwner")
+  auctionParticipants    AuctionParticipant[]
+  captainTeams           AuctionTeam[]         @relation("TeamCaptain")
+  chatMessages           ChatMessage[]
+  createdInternalMatches InternalMatch[]       @relation("InternalMatchCreator")
+  internalMatchPlayers   InternalMatchPlayer[]
+  auctionStats           UserAuctionStats?
+  auctionSoldRecords     AuctionSoldRecord[]
 }
 
 model LolAccount {
@@ -171,6 +172,7 @@ model AuctionTeam {
   auction      Auction               @relation(fields: [auctionId], references: [id], onDelete: Cascade)
   captain      User?                 @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: SetNull)
   members      AuctionParticipant[]
+  matchTeams   InternalMatchTeam[]
   matchPlayers InternalMatchPlayer[]
   soldRecords  AuctionSoldRecord[]
 
@@ -219,40 +221,68 @@ model AppLog {
 model InternalMatch {
   id               String                @id @default(cuid())
   auctionId        String
+  createdByUserId  String?
   gameNumber       Int
   matchFingerprint String?
+  title            String?
   screenshotUrl    String?
+  sourceType       String                @default("OCR")
+  status           String                @default("CONFIRMED")
   resultText       String?
   winningSide      String
   playedAt         DateTime              @default(now())
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   auction          Auction               @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  createdBy        User?                 @relation("InternalMatchCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  teams            InternalMatchTeam[]
   players          InternalMatchPlayer[]
 
   @@unique([auctionId, gameNumber])
   @@unique([auctionId, matchFingerprint])
 }
 
+model InternalMatchTeam {
+  id              String                @id @default(cuid())
+  internalMatchId String
+  side            String
+  result          String
+  teamName        String?
+  auctionTeamId   String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  internalMatch   InternalMatch         @relation(fields: [internalMatchId], references: [id], onDelete: Cascade)
+  auctionTeam     AuctionTeam?          @relation(fields: [auctionTeamId], references: [id], onDelete: SetNull)
+  players         InternalMatchPlayer[]
+
+  @@unique([internalMatchId, side])
+  @@index([auctionTeamId])
+}
+
 model InternalMatchPlayer {
-  id               String        @id @default(cuid())
-  internalMatchId  String
-  userId           String?
-  auctionTeamId    String?
-  side             String
-  rawPlayerName    String?
-  championName     String?
-  championId       String?
-  championImageUrl String?
-  kills            Int?
-  deaths           Int?
-  assists          Int?
-  win              Boolean
-  confidence       Float?
-  createdAt        DateTime      @default(now())
-  internalMatch    InternalMatch @relation(fields: [internalMatchId], references: [id], onDelete: Cascade)
-  user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  auctionTeam      AuctionTeam?  @relation(fields: [auctionTeamId], references: [id], onDelete: SetNull)
+  id                  String             @id @default(cuid())
+  internalMatchId     String
+  internalMatchTeamId String?
+  userId              String?
+  auctionTeamId       String?
+  side                String
+  rawPlayerName       String?
+  championName        String?
+  championId          String?
+  championImageUrl    String?
+  kills               Int?
+  deaths              Int?
+  assists             Int?
+  cs                  Int?
+  damage              Int?
+  position            String?
+  win                 Boolean
+  confidence          Float?
+  createdAt           DateTime           @default(now())
+  internalMatch       InternalMatch      @relation(fields: [internalMatchId], references: [id], onDelete: Cascade)
+  internalMatchTeam   InternalMatchTeam? @relation(fields: [internalMatchTeamId], references: [id], onDelete: SetNull)
+  user                User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  auctionTeam         AuctionTeam?       @relation(fields: [auctionTeamId], references: [id], onDelete: SetNull)
 }
 
 model UserAuctionStats {

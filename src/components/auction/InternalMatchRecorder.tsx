@@ -13,6 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   analyzeInternalMatchScreenshot,
+  createManualInternalMatchDraft,
   saveInternalMatchDraft,
   type InternalMatchDraft,
   type InternalMatchPlayerDraft,
@@ -128,6 +129,28 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
     });
   }
 
+  function handleManualDraft() {
+    setError(null);
+    setPasteMessage(null);
+    setSuccess(null);
+
+    const formData = new FormData();
+    formData.set("auctionId", auctionId);
+    formData.set("auctionCode", auctionCode);
+
+    startAnalyzeTransition(async () => {
+      const result = await createManualInternalMatchDraft(formData);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      if (result.draft) {
+        setDraft(result.draft);
+        setSuccess(result.success ?? "수동 입력 초안을 만들었습니다.");
+      }
+    });
+  }
+
   function handleWinningSideChange(winningSide: "TEAM_1" | "TEAM_2") {
     updateDraft((currentDraft) => ({
       ...currentDraft,
@@ -222,6 +245,9 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
           />
           <Button disabled={isAnalyzing || !selectedScreenshot} type="submit" variant="secondary">
             {isAnalyzing ? "분석 중..." : "스크린샷 분석"}
+          </Button>
+          <Button disabled={isAnalyzing} onClick={handleManualDraft} type="button" variant="ghost">
+            수동 입력
           </Button>
         </form>
       </div>
@@ -373,7 +399,7 @@ function PlayerDraftRow({
   userOptions: InternalMatchDraft["userOptions"];
 }) {
   return (
-    <div className="grid gap-2 rounded-md border border-white/10 bg-slate-950/50 p-2 lg:grid-cols-[minmax(120px,1.1fr)_minmax(120px,1fr)_64px_64px_64px_92px]">
+    <div className="grid gap-2 rounded-md border border-white/10 bg-slate-950/50 p-2 lg:grid-cols-[minmax(120px,1.1fr)_minmax(120px,1fr)_56px_56px_56px_64px_80px_92px]">
       <Input
         className="h-9 text-xs"
         onChange={(event) => onChange({ rawPlayerName: event.target.value })}
@@ -395,6 +421,8 @@ function PlayerDraftRow({
       <KdaInput label="K" onChange={(kills) => onChange({ kills })} value={player.kills} />
       <KdaInput label="D" onChange={(deaths) => onChange({ deaths })} value={player.deaths} />
       <KdaInput label="A" onChange={(assists) => onChange({ assists })} value={player.assists} />
+      <KdaInput label="CS" onChange={(cs) => onChange({ cs })} value={player.cs} />
+      <KdaInput label="딜량" onChange={(damage) => onChange({ damage })} value={player.damage} />
       <select
         className="h-9 rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none"
         onChange={(event) => onChange({ side: event.target.value as "TEAM_1" | "TEAM_2" })}
@@ -404,7 +432,7 @@ function PlayerDraftRow({
         <option value="TEAM_2">TEAM_2</option>
       </select>
       <select
-        className="h-9 rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none lg:col-span-2"
+        className="h-9 rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none lg:col-span-3"
         onChange={(event) => onChampionChange(event.target.value)}
         value={player.championId ?? ""}
       >
@@ -423,7 +451,7 @@ function PlayerDraftRow({
         <option value="true">승</option>
         <option value="false">패</option>
       </select>
-      <p className="text-xs text-slate-500 lg:col-span-2">
+      <p className="text-xs text-slate-500 lg:col-span-3">
         OCR 이름: {player.rawPlayerName || "-"}
         {player.matchedUserNickname ? ` · 매칭 유저: ${player.matchedUserNickname}` : ""}
         {player.matchedLolAccountName ? ` · 롤 계정: ${player.matchedLolAccountName}` : ""}

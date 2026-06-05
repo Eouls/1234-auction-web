@@ -31,6 +31,8 @@ export type InternalMatchPlayerDraft = {
   championImageUrl: string | null;
   championName: string | null;
   confidence: number | null;
+  cs: number | null;
+  damage: number | null;
   deaths: number | null;
   draftId: string;
   kills: number | null;
@@ -50,6 +52,7 @@ export type InternalMatchDraft = {
   playedAt: string;
   screenResult: MatchScreenshotResultText;
   screenshotUrl: string | null;
+  sourceType: "MANUAL" | "OCR";
   teams: Array<{
     auctionTeamId: string | null;
     players: InternalMatchPlayerDraft[];
@@ -98,7 +101,7 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
 
   const auction = await getAuctionForMatchDraft(auctionId);
   if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canAccessAuction(auction, currentUser.id)) return { error: "내전 기록을 등록할 권한이 없습니다." };
+  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 등록할 수 있습니다." };
 
   const extension = screenshot.name.split(".").pop()?.toLowerCase() ?? "png";
   const safeExtension = extension === "jpeg" ? "jpg" : extension;
@@ -156,6 +159,35 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
   return result;
 }
 
+export async function createManualInternalMatchDraft(formData: FormData): Promise<AnalyzeInternalMatchState> {
+  const auctionId = stringValue(formData.get("auctionId"));
+  const auctionCode = stringValue(formData.get("auctionCode"));
+  if (!auctionId || !auctionCode) return { error: "경매 정보를 찾을 수 없습니다." };
+
+  const supabase = await createClient();
+  const currentUser = await getCurrentUser(supabase);
+  if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+
+  const auction = await getAuctionForMatchDraft(auctionId);
+  if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
+  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 등록할 수 있습니다." };
+
+  const draft = await buildInternalMatchDraft({
+    analysis: {
+      detectedLayoutType: "UNKNOWN",
+      screenResult: "UNKNOWN",
+      teams: [],
+      warnings: ["수동 입력 초안입니다. 승리 팀과 플레이어 기록을 직접 확인해주세요."],
+    },
+    auction,
+    auctionCode,
+    screenshotUrl: null,
+    sourceType: "MANUAL",
+  });
+
+  return { draft, success: "수동 입력 초안을 만들었습니다." };
+}
+
 export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promise<SaveInternalMatchState> {
   const supabase = await createClient();
   const currentUser = await getCurrentUser(supabase);
@@ -170,7 +202,7 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
   });
 
   if (!auction || auction.code !== payload.auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canAccessAuction(auction, currentUser.id)) return { error: "내전 기록을 저장할 권한이 없습니다." };
+  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 저장할 수 있습니다." };
   if (payload.winningSide !== "TEAM_1" && payload.winningSide !== "TEAM_2") {
     return { error: "승리 팀을 선택해주세요." };
   }
@@ -215,8 +247,11 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
       const match = await tx.internalMatch.create({
         data: {
           auctionId: auction.id,
+          createdByUserId: currentUser.id,
           gameNumber: payload.gameNumber,
           matchFingerprint,
+          sourceType: payload.sourceType === "MANUAL" ? "MANUAL" : "OCR",
+          status: "CONFIRMED",
           screenshotUrl: payload.screenshotUrl,
           resultText: payload.screenResult,
           winningSide: payload.winningSide,
@@ -225,9 +260,29 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
         select: { id: true },
       });
 
+      const matchTeams = await Promise.all(
+        payload.teams.map((team) =>
+          tx.internalMatchTeam.create({
+            data: {
+              auctionTeamId: team.auctionTeamId && teamIds.has(team.auctionTeamId) ? team.auctionTeamId : null,
+              internalMatchId: match.id,
+              result: team.side === payload.winningSide ? "WIN" : "LOSE",
+              side: team.side,
+              teamName: nullableString(team.teamName),
+            },
+            select: {
+              id: true,
+              side: true,
+            },
+          }),
+        ),
+      );
+      const matchTeamIdBySide = new Map(matchTeams.map((team) => [team.side, team.id]));
+
       await tx.internalMatchPlayer.createMany({
         data: players.map((player) => ({
           internalMatchId: match.id,
+          internalMatchTeamId: matchTeamIdBySide.get(player.side) ?? null,
           userId: player.userId && participantUserIds.has(player.userId) ? player.userId : null,
           auctionTeamId: player.auctionTeamId && teamIds.has(player.auctionTeamId) ? player.auctionTeamId : null,
           side: player.side,
@@ -238,6 +293,8 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
           kills: nullableInteger(player.kills),
           deaths: nullableInteger(player.deaths),
           assists: nullableInteger(player.assists),
+          cs: nullableInteger(player.cs),
+          damage: nullableInteger(player.damage),
           win: player.win,
           confidence: typeof player.confidence === "number" ? player.confidence : null,
         })),
@@ -259,11 +316,13 @@ async function buildInternalMatchDraft({
   analysis,
   auction,
   auctionCode,
+  sourceType = "OCR",
   screenshotUrl,
 }: {
   analysis: Awaited<ReturnType<typeof analyzeMatchScreenshot>>;
   auction: NonNullable<Awaited<ReturnType<typeof getAuctionForMatchDraft>>>;
   auctionCode: string;
+  sourceType?: "MANUAL" | "OCR";
   screenshotUrl: string | null;
 }): Promise<InternalMatchDraft> {
   const championOptions = await getChampionOptions();
@@ -317,6 +376,8 @@ async function buildInternalMatchDraft({
           championImageUrl: champion?.imageUrl ?? null,
           championName: champion?.name ?? player.championName,
           confidence: player.confidence,
+          cs: null,
+          damage: null,
           deaths: player.deaths,
           draftId: crypto.randomUUID(),
           kills: player.kills,
@@ -343,6 +404,7 @@ async function buildInternalMatchDraft({
     playedAt: new Date().toISOString(),
     screenResult: analysis.screenResult,
     screenshotUrl,
+    sourceType,
     teams,
     userOptions,
     warnings,
@@ -560,6 +622,10 @@ function canAccessAuction(auction: { ownerId: string; participants: Array<{ user
   return auction.ownerId === userId || auction.participants.some((participant) => participant.userId === userId);
 }
 
+function canManageMatchRecords(auction: { ownerId: string }, userId: string) {
+  return auction.ownerId === userId;
+}
+
 function formatAccount(account: { gameName: string; tagLine: string } | undefined) {
   if (!account) return "롤 계정 정보 없음";
   return `${account.gameName} #${account.tagLine}`;
@@ -611,8 +677,10 @@ function createMatchFingerprint({
       const playerKey = normalizeFingerprintPart(player.userId ?? player.rawPlayerName ?? "");
       const championKey = normalizeFingerprintPart(player.championId ?? player.championName ?? "");
       const kda = `${nullableInteger(player.kills) ?? "-"}:${nullableInteger(player.deaths) ?? "-"}:${nullableInteger(player.assists) ?? "-"}`;
+      const cs = nullableInteger(player.cs) ?? "-";
+      const damage = nullableInteger(player.damage) ?? "-";
 
-      return `${player.side}:${playerKey}:${championKey}:${kda}`;
+      return `${player.side}:${playerKey}:${championKey}:${kda}:${cs}:${damage}`;
     })
     .sort();
   const fingerprintSource = [
