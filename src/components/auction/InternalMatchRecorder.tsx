@@ -32,9 +32,11 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
   const router = useRouter();
   const [draft, setDraft] = useState<InternalMatchDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [collectDatasetImage, setCollectDatasetImage] = useState(true);
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedScreenshot, setSelectedScreenshot] = useState<File | null>(null);
+  const [screenshotDimensions, setScreenshotDimensions] = useState<{ height: number; width: number } | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAnalyzing, startAnalyzeTransition] = useTransition();
@@ -62,6 +64,7 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
 
     if (!allowedScreenshotTypes.has(file.type)) {
       setSelectedScreenshot(null);
+      setScreenshotDimensions(null);
       setPreviewUrl(null);
       setError("jpg, jpeg, png, webp 이미지만 등록할 수 있습니다.");
       return;
@@ -69,17 +72,23 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
 
     if (file.size > maxScreenshotSize) {
       setSelectedScreenshot(null);
+      setScreenshotDimensions(null);
       setPreviewUrl(null);
       setError("스크린샷은 최대 5MB까지 등록할 수 있습니다.");
       return;
     }
 
+    const nextPreviewUrl = URL.createObjectURL(file);
     setSelectedScreenshot(file);
     setDraft(null);
     setPreviewUrl((currentUrl) => {
       if (currentUrl) URL.revokeObjectURL(currentUrl);
-      return URL.createObjectURL(file);
+      return nextPreviewUrl;
     });
+    setScreenshotDimensions(null);
+    readImageDimensions(nextPreviewUrl)
+      .then((dimensions) => setScreenshotDimensions(dimensions))
+      .catch(() => setScreenshotDimensions(null));
     setPasteMessage(source === "paste" ? "클립보드 이미지를 등록했습니다. 분석을 시작할 수 있습니다." : null);
   }
 
@@ -114,7 +123,12 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
     const formData = new FormData();
     formData.set("auctionId", auctionId);
     formData.set("auctionCode", auctionCode);
+    formData.set("collectDatasetImage", String(collectDatasetImage));
     formData.set("screenshot", selectedScreenshot);
+    if (screenshotDimensions) {
+      formData.set("imageHeight", String(screenshotDimensions.height));
+      formData.set("imageWidth", String(screenshotDimensions.width));
+    }
 
     startAnalyzeTransition(async () => {
       const result = await analyzeInternalMatchScreenshot(formData);
@@ -214,6 +228,7 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
       setSuccess(result.success ?? "내전 기록을 저장했습니다.");
       setDraft(null);
       setSelectedScreenshot(null);
+      setScreenshotDimensions(null);
       setPreviewUrl(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       router.refresh();
@@ -264,10 +279,22 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
             <p className="mt-1 text-xs leading-5 text-[var(--foreground-muted)]">
               Windows 캡처 도구나 macOS 스크린샷을 파일로 저장하지 않고 바로 등록할 수 있습니다. PNG, JPG, WEBP · 최대 5MB
             </p>
+            <label className="mt-3 flex items-start gap-2 text-xs leading-5 text-[var(--foreground-muted)]">
+              <input
+                checked={collectDatasetImage}
+                className="mt-1 h-4 w-4 rounded border-[var(--border)]"
+                onChange={(event) => setCollectDatasetImage(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                이 이미지를 자동 분석 학습용 데이터셋 후보로 저장합니다. 업로드한 결과창 이미지는 향후 자동 분석 정확도 개선에 활용될 수 있습니다.
+              </span>
+            </label>
           </div>
           {selectedScreenshot ? (
             <span className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-semibold text-[var(--foreground)]">
               {selectedScreenshot.name || "붙여넣은 이미지"}
+              {screenshotDimensions ? ` · ${screenshotDimensions.width}x${screenshotDimensions.height}` : ""}
             </span>
           ) : null}
         </div>
@@ -492,6 +519,15 @@ function getImageFileFromClipboard(clipboardData: DataTransfer) {
   const extension = getImageExtension(file.type);
   return new File([file], `pasted-match-result-${Date.now()}.${extension}`, {
     type: file.type,
+  });
+}
+
+function readImageDimensions(imageUrl: string) {
+  return new Promise<{ height: number; width: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ height: image.naturalHeight, width: image.naturalWidth });
+    image.onerror = reject;
+    image.src = imageUrl;
   });
 }
 

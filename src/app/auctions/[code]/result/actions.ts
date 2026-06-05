@@ -48,6 +48,7 @@ export type InternalMatchDraft = {
   auctionCode: string;
   auctionId: string;
   championOptions: ChampionOption[];
+  datasetImageId: string | null;
   gameNumber: number;
   playedAt: string;
   screenResult: MatchScreenshotResultText;
@@ -82,6 +83,9 @@ const maxScreenshotSize = 5 * 1024 * 1024;
 export async function analyzeInternalMatchScreenshot(formData: FormData): Promise<AnalyzeInternalMatchState> {
   const auctionId = stringValue(formData.get("auctionId"));
   const auctionCode = stringValue(formData.get("auctionCode"));
+  const collectDatasetImage = formData.get("collectDatasetImage") === "true";
+  const imageHeight = positiveIntegerValue(formData.get("imageHeight"));
+  const imageWidth = positiveIntegerValue(formData.get("imageWidth"));
   const screenshot = formData.get("screenshot");
 
   if (!auctionId || !auctionCode) return { error: "경매 정보를 찾을 수 없습니다." };
@@ -105,25 +109,22 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
 
   const extension = screenshot.name.split(".").pop()?.toLowerCase() ?? "png";
   const safeExtension = extension === "jpeg" ? "jpg" : extension;
-  const path = `${auction.id}/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
-  const { error: uploadError } = await supabase.storage.from(screenshotBucket).upload(path, screenshot, {
-    contentType: screenshot.type,
-    upsert: false,
-  });
-
-  if (uploadError) {
-    console.error("[internal-match] screenshot upload failed", {
-      message: uploadError.message,
-      name: getErrorProperty(uploadError, "name"),
-      statusCode: getErrorProperty(uploadError, "statusCode"),
-    });
-    return { error: "스크린샷 업로드에 실패했습니다. internal-match-screenshots bucket 설정을 확인해주세요." };
-  }
+  const imageBuffer = Buffer.from(await screenshot.arrayBuffer());
+  const datasetResult = collectDatasetImage
+    ? await createDatasetImageCandidate({
+        auctionId: auction.id,
+        file: screenshot,
+        height: imageHeight,
+        safeExtension,
+        supabase,
+        uploadedByUserId: currentUser.id,
+        width: imageWidth,
+      })
+    : null;
 
   let result: AnalyzeInternalMatchState;
 
   try {
-    const imageBuffer = Buffer.from(await screenshot.arrayBuffer());
     const analysis = await analyzeMatchScreenshot(imageBuffer, {
       roster: buildOcrRoster(auction),
     });
@@ -131,8 +132,10 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
       analysis,
       auction,
       auctionCode,
-      screenshotUrl: null,
+      datasetImageId: datasetResult?.id ?? null,
+      screenshotUrl: datasetResult?.imageUrl ?? null,
     });
+    if (datasetResult?.warning) draft.warnings.push(datasetResult.warning);
 
     result = { draft, success: "스크린샷 분석 초안을 만들었습니다." };
   } catch (error) {
@@ -140,20 +143,6 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
       message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
     });
     result = { error: "스크린샷 분석에 실패했습니다." };
-  }
-
-  const removeError = await removeTemporaryScreenshot(supabase, path);
-  if (removeError) {
-    console.error("[internal-match] temporary screenshot delete failed", {
-      message: removeError.message,
-      name: getErrorProperty(removeError, "name"),
-      path,
-      statusCode: getErrorProperty(removeError, "statusCode"),
-    });
-
-    if (result.draft) {
-      result.draft.warnings.push("분석용 임시 스크린샷 삭제에 실패했습니다. Storage DELETE 정책을 확인해주세요.");
-    }
   }
 
   return result;
@@ -181,6 +170,7 @@ export async function createManualInternalMatchDraft(formData: FormData): Promis
     },
     auction,
     auctionCode,
+    datasetImageId: null,
     screenshotUrl: null,
     sourceType: "MANUAL",
   });
@@ -260,6 +250,19 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
         select: { id: true },
       });
 
+      if (payload.datasetImageId) {
+        await tx.datasetImage.updateMany({
+          where: {
+            auctionId: auction.id,
+            id: payload.datasetImageId,
+            uploadedByUserId: currentUser.id,
+          },
+          data: {
+            matchId: match.id,
+          },
+        });
+      }
+
       const matchTeams = await Promise.all(
         payload.teams.map((team) =>
           tx.internalMatchTeam.create({
@@ -316,12 +319,14 @@ async function buildInternalMatchDraft({
   analysis,
   auction,
   auctionCode,
+  datasetImageId,
   sourceType = "OCR",
   screenshotUrl,
 }: {
   analysis: Awaited<ReturnType<typeof analyzeMatchScreenshot>>;
   auction: NonNullable<Awaited<ReturnType<typeof getAuctionForMatchDraft>>>;
   auctionCode: string;
+  datasetImageId: string | null;
   sourceType?: "MANUAL" | "OCR";
   screenshotUrl: string | null;
 }): Promise<InternalMatchDraft> {
@@ -400,6 +405,7 @@ async function buildInternalMatchDraft({
     auctionCode,
     auctionId: auction.id,
     championOptions,
+    datasetImageId,
     gameNumber: getNextGameNumber(auction.internalMatches),
     playedAt: new Date().toISOString(),
     screenResult: analysis.screenResult,
@@ -605,6 +611,85 @@ function optionMatches(option: InternalMatchUserOption, normalizedRawName: strin
   return aliases.some((alias) => alias === normalizedRawName || alias.includes(normalizedRawName) || normalizedRawName.includes(alias));
 }
 
+async function createDatasetImageCandidate({
+  auctionId,
+  file,
+  height,
+  safeExtension,
+  supabase,
+  uploadedByUserId,
+  width,
+}: {
+  auctionId: string;
+  file: File;
+  height: number | null;
+  safeExtension: string;
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  uploadedByUserId: string;
+  width: number | null;
+}) {
+  const path = `${auctionId}/dataset/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
+  const { error: uploadError } = await supabase.storage.from(screenshotBucket).upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  });
+
+  if (uploadError) {
+    console.error("[dataset-image] upload failed", {
+      message: uploadError.message,
+      name: getErrorProperty(uploadError, "name"),
+      statusCode: getErrorProperty(uploadError, "statusCode"),
+    });
+    return {
+      id: null,
+      imageUrl: null,
+      warning: "데이터셋 후보 이미지 저장에 실패했습니다. 결과 초안은 계속 사용할 수 있습니다.",
+    };
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(screenshotBucket).getPublicUrl(path);
+
+  try {
+    const datasetImage = await prisma.datasetImage.create({
+      data: {
+        auctionId,
+        fileSize: file.size,
+        height,
+        imageUrl: publicUrl,
+        mimeType: file.type,
+        originalFileName: nullableString(file.name),
+        screenType: "UNKNOWN",
+        sourceType: "RESULT_UPLOAD",
+        status: "COLLECTED",
+        uploadedByUserId,
+        width,
+      },
+      select: {
+        id: true,
+        imageUrl: true,
+      },
+    });
+
+    return {
+      id: datasetImage.id,
+      imageUrl: datasetImage.imageUrl,
+      warning: null,
+    };
+  } catch (error) {
+    console.error("[dataset-image] create row failed", {
+      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+    });
+    await removeStoredScreenshot(supabase, path);
+    return {
+      id: null,
+      imageUrl: null,
+      warning: "데이터셋 후보 이미지 DB 저장에 실패했습니다. 결과 초안은 계속 사용할 수 있습니다.",
+    };
+  }
+}
+
 async function getCurrentUser(supabase: Awaited<ReturnType<typeof createClient>>) {
   const {
     data: { user: authUser },
@@ -641,6 +726,12 @@ function normalizeMatchText(value: string) {
 
 function stringValue(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function positiveIntegerValue(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function nullableString(value: string | null | undefined) {
@@ -700,7 +791,7 @@ function normalizeFingerprintPart(value: string) {
     .replace(/[^a-z0-9가-힣:_-]/g, "");
 }
 
-async function removeTemporaryScreenshot(supabase: Awaited<ReturnType<typeof createClient>>, path: string) {
+async function removeStoredScreenshot(supabase: Awaited<ReturnType<typeof createClient>>, path: string) {
   const { error } = await supabase.storage.from(screenshotBucket).remove([path]);
   return error;
 }
