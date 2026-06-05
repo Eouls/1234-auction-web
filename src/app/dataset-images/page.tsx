@@ -64,8 +64,30 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
       },
     },
   });
+  const exportDatasetImages = await prisma.datasetImage.findMany({
+    where: {
+      status: "NEEDS_LABELING",
+      ...(screenType === "ALL" ? {} : { screenType }),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 1000,
+    select: {
+      auctionId: true,
+      createdAt: true,
+      height: true,
+      id: true,
+      imageUrl: true,
+      matchId: true,
+      originalFileName: true,
+      screenType: true,
+      status: true,
+      width: true,
+    },
+  });
   const images: DatasetImageListItem[] = datasetImages.map((image) => ({
     auctionCode: image.auction?.code ?? null,
+    auctionId: image.auctionId,
+    createdAt: image.createdAt.toISOString(),
     createdAtLabel: new Intl.DateTimeFormat("ko-KR", {
       dateStyle: "medium",
       timeStyle: "short",
@@ -74,12 +96,25 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
     height: image.height,
     id: image.id,
     imageUrl: image.imageUrl,
+    matchId: image.matchId,
     matchLabel: image.match ? `${image.match.gameNumber}경기 · ${image.match.winningSide} 승리` : null,
     mimeType: image.mimeType,
     originalFileName: image.originalFileName,
     screenType: image.screenType,
     status: image.status,
     uploadedByNickname: image.uploadedBy.nickname,
+    width: image.width,
+  }));
+  const exportImages = exportDatasetImages.map((image) => ({
+    auctionId: image.auctionId,
+    createdAt: image.createdAt.toISOString(),
+    height: image.height,
+    id: image.id,
+    imageUrl: image.imageUrl,
+    matchId: image.matchId,
+    originalFileName: image.originalFileName,
+    screenType: image.screenType,
+    status: image.status,
     width: image.width,
   }));
 
@@ -92,6 +127,34 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
       />
 
       <Card className="mt-6 p-4">
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
+            <p className="text-sm font-black text-[var(--foreground)]">라벨링 가이드</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--foreground-muted)]">
+              처음부터 챔피언 170개를 분류하지 않고, 결과창 영역과 아이콘 위치를 먼저 탐지하는 데이터셋으로 정리합니다.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["player_row", "champion_icon", "nickname_area", "kda_area", "cs_area", "damage_area", "team_result"].map((label) => (
+                <span
+                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] font-semibold text-[var(--foreground)]"
+                  key={label}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
+            <p className="text-sm font-black text-[var(--foreground)]">상태 의미</p>
+            <dl className="mt-2 grid gap-1 text-xs leading-5 text-[var(--foreground-muted)]">
+              <div><dt className="inline font-bold text-[var(--foreground)]">COLLECTED</dt><dd className="inline">: 수집됨</dd></div>
+              <div><dt className="inline font-bold text-[var(--foreground)]">NEEDS_LABELING</dt><dd className="inline">: 라벨링 필요</dd></div>
+              <div><dt className="inline font-bold text-[var(--foreground)]">LABELED</dt><dd className="inline">: 라벨링 완료</dd></div>
+              <div><dt className="inline font-bold text-[var(--foreground)]">EXCLUDED</dt><dd className="inline">: 제외</dd></div>
+            </dl>
+          </div>
+        </div>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <FilterGroup
             currentScreenType={screenType}
@@ -111,6 +174,11 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
         <p className="mt-3 text-xs leading-5 text-[var(--foreground-muted)]">
           기본 “전체” 상태는 제외 처리된 이미지를 숨깁니다. 잘못 업로드된 이미지는 상태를 EXCLUDED로 바꾼 뒤 EXCLUDED 필터에서 확인할 수 있습니다.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <QuickLink href={buildDatasetFilterHref({ screenType, status: "NEEDS_LABELING" })} label="라벨링 필요만 보기" />
+          <QuickLink href={buildDatasetFilterHref({ screenType, status: "NEEDS_LABELING" })} label="Roboflow 업로드 후보" />
+          <QuickLink href={buildDatasetFilterHref({ screenType, status: "EXCLUDED" })} label="제외 이미지 보기" />
+        </div>
       </Card>
 
       <div className="mt-5 flex items-center justify-between gap-3">
@@ -127,7 +195,7 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
 
       {images.length ? (
         <div className="mt-4">
-          <DatasetImageManager images={images} />
+          <DatasetImageManager exportImages={exportImages} exportScreenType={screenType} images={images} />
         </div>
       ) : (
         <Card className="mt-4 p-8 text-center">
@@ -138,6 +206,17 @@ export default async function DatasetImagesPage({ searchParams }: DatasetImagesP
         </Card>
       )}
     </AppShell>
+  );
+}
+
+function QuickLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      className="rounded-md border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-xs font-bold text-[var(--secondary-foreground)] transition hover:bg-[var(--surface-hover)]"
+      href={href}
+    >
+      {label}
+    </Link>
   );
 }
 
