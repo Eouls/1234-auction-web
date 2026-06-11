@@ -7,6 +7,7 @@ import {
   finalizeRound,
   pauseAuction,
   placeBid,
+  resetAuction,
   resumeAuction,
   rollbackPreviousRound,
   startAuction,
@@ -93,13 +94,14 @@ export function AuctionOwnerControls({
 }: AuctionOwnerControlsProps) {
   const router = useRouter();
   const [pauseState, pauseAction, isPausing] = useActionState(pauseAuction, initialState);
+  const [resetState, resetAction, isResetting] = useActionState(resetAuction, initialState);
   const [resumeState, resumeAction, isResuming] = useActionState(resumeAuction, initialState);
   const [rollbackState, rollbackAction, isRollingBack] = useActionState(rollbackPreviousRound, initialState);
 
   useEffect(() => {
-    if (!pauseState.success && !resumeState.success && !rollbackState.success) return;
+    if (!pauseState.success && !resetState.success && !resumeState.success && !rollbackState.success) return;
     router.refresh();
-  }, [pauseState.success, resumeState.success, rollbackState.success, router]);
+  }, [pauseState.success, resetState.success, resumeState.success, rollbackState.success, router]);
 
   if (!isOwner || (!isRunning && !isPaused)) return null;
 
@@ -108,7 +110,7 @@ export function AuctionOwnerControls({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-white">방장 경매 제어</p>
-          <p className="mt-1 text-xs text-slate-500">일시정지하거나 직전 라운드 상태로 되돌릴 수 있습니다.</p>
+          <p className="mt-1 text-xs text-slate-500">일시정지, 직전 라운드 복원, 시작 전 상태 초기화를 할 수 있습니다.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {isRunning ? (
@@ -144,14 +146,31 @@ export function AuctionOwnerControls({
               {isRollingBack ? "되돌리는 중..." : "이전 경매로 되돌리기"}
             </Button>
           </form>
+          <form
+            action={resetAction}
+            onSubmit={(event) => {
+              const confirmed = window.confirm(
+                "현재 입찰 기록과 낙찰 결과가 모두 초기화됩니다. 경매를 시작 전 상태로 되돌릴까요?",
+              );
+              if (!confirmed) event.preventDefault();
+            }}
+          >
+            <input name="auctionId" type="hidden" value={auctionId} />
+            <input name="auctionCode" type="hidden" value={auctionCode} />
+            <Button disabled={isResetting} size="sm" type="submit" variant="danger">
+              {isResetting ? "초기화 중..." : "경매 초기화"}
+            </Button>
+          </form>
         </div>
       </div>
       {pauseState.error ? <p className="mt-2 text-xs text-rose-300">{pauseState.error}</p> : null}
       {resumeState.error ? <p className="mt-2 text-xs text-rose-300">{resumeState.error}</p> : null}
       {rollbackState.error ? <p className="mt-2 text-xs text-rose-300">{rollbackState.error}</p> : null}
+      {resetState.error ? <p className="mt-2 text-xs text-rose-300">{resetState.error}</p> : null}
       {pauseState.success ? <p className="mt-2 text-xs text-cyan-200">{pauseState.success}</p> : null}
       {resumeState.success ? <p className="mt-2 text-xs text-cyan-200">{resumeState.success}</p> : null}
       {rollbackState.success ? <p className="mt-2 text-xs text-cyan-200">{rollbackState.success}</p> : null}
+      {resetState.success ? <p className="mt-2 text-xs text-cyan-200">{resetState.success}</p> : null}
     </Card>
   );
 }

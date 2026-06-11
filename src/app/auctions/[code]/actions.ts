@@ -451,6 +451,166 @@ export async function pauseAuction(
   return { success: "경매를 일시정지했습니다." };
 }
 
+export async function resetAuction(
+  _previousState: AuctionActionState,
+  formData: FormData,
+): Promise<AuctionActionState> {
+  const currentUser = await getCurrentUser();
+  const auctionId = stringValue(formData.get("auctionId"));
+  const auctionCode = stringValue(formData.get("auctionCode"));
+
+  if (!currentUser) {
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  }
+
+  let resetLogMetadata: Record<string, unknown> | null = null;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await lockAuctionForUpdate(tx, auctionId);
+
+      const auction = await tx.auction.findUnique({
+        where: { id: auctionId },
+        include: {
+          teams: true,
+        },
+      });
+
+      if (!auction) throw new CaptainActionError("경매방을 찾을 수 없습니다.");
+      if (auction.code !== auctionCode) throw new CaptainActionError("경매방 정보가 일치하지 않습니다.");
+      if (auction.ownerId !== currentUser.id) throw new CaptainActionError("방장만 경매를 초기화할 수 있습니다.");
+      if (auction.status !== AuctionStatus.RUNNING && auction.status !== AuctionStatus.PAUSED) {
+        throw new CaptainActionError("진행 중이거나 일시중지된 경매만 초기화할 수 있습니다.");
+      }
+
+      const soldRecords = await tx.auctionSoldRecord.findMany({
+        where: { auctionId: auction.id },
+        select: {
+          userId: true,
+        },
+      });
+      const affectedUserIds = [...new Set(soldRecords.map((record) => record.userId))];
+      const firstRoundSnapshot = await tx.auctionRoundSnapshot.findFirst({
+        where: { auctionId: auction.id },
+        orderBy: { roundNumber: "asc" },
+        select: { snapshot: true },
+      });
+      const initialTeamPoints = firstRoundSnapshot
+        ? new Map(parseRoundSnapshot(firstRoundSnapshot.snapshot).teams.map((team) => [team.id, team.pointsLeft]))
+        : new Map<string, number>();
+
+      await tx.auctionSoldRecord.deleteMany({
+        where: { auctionId: auction.id },
+      });
+      await tx.auctionBid.deleteMany({
+        where: { auctionId: auction.id },
+      });
+      await tx.auctionRoundSnapshot.deleteMany({
+        where: { auctionId: auction.id },
+      });
+      await tx.auctionParticipant.updateMany({
+        where: { auctionId: auction.id },
+        data: {
+          auctionOrder: null,
+          lastSeenAt: null,
+          soldPrice: null,
+          status: ParticipantStatus.WAITING,
+          teamId: null,
+        },
+      });
+      await Promise.all(
+        auction.teams.map((team) =>
+          tx.auctionTeam.update({
+            where: { id: team.id },
+            data: {
+              captainId: null,
+              pointsLeft: initialTeamPoints.get(team.id) ?? auction.startPoints,
+            },
+          }),
+        ),
+      );
+
+      const resetAt = new Date();
+      const updatedAuction = await tx.auction.update({
+        where: { id: auction.id },
+        data: {
+          currentBidId: null,
+          currentRoundEndAt: null,
+          currentTargetParticipantId: null,
+          lastActivityAt: resetAt,
+          pausedAt: null,
+          pausedRemainingMs: null,
+          pauseReason: null,
+          status: AuctionStatus.READY,
+        },
+      });
+
+      await Promise.all(
+        affectedUserIds.map((userId) => recalculateUserAuctionStats(tx, userId)),
+      );
+
+      resetLogMetadata = {
+        affectedUserCount: affectedUserIds.length,
+        auctionCode: auction.code,
+        bidCountReset: true,
+        captainCountReset: auction.teams.filter((team) => team.captainId).length,
+        previousStatus: auction.status,
+        resetAt: resetAt.toISOString(),
+        restoredTeamPointsFromSnapshot: Boolean(firstRoundSnapshot),
+        soldRecordCount: soldRecords.length,
+        statusAfter: updatedAuction.status,
+        teamCount: auction.teams.length,
+      };
+    });
+
+    console.log("[auction-reset] auction reset", {
+      auctionId,
+      userId: currentUser.id,
+      ...(resetLogMetadata ?? {}),
+    });
+    await logAppError({
+      auctionId,
+      level: "INFO",
+      message: "Auction reset to ready state",
+      metadata: resetLogMetadata,
+      scope: "auction-reset",
+      userId: currentUser.id,
+    });
+  } catch (error) {
+    if (error instanceof CaptainActionError) {
+      await logAppError({
+        auctionId,
+        level: "WARN",
+        message: "Auction reset rejected",
+        metadata: {
+          auctionCode,
+          error: errorToLogMetadata(error),
+        },
+        scope: "auction-reset",
+        userId: currentUser.id,
+      });
+      return { error: error.message };
+    }
+
+    console.error("[auction-reset] Failed", error);
+    await logAppError({
+      auctionId,
+      message: "Failed to reset auction",
+      metadata: {
+        auctionCode,
+        error: errorToLogMetadata(error),
+      },
+      scope: "auction-reset",
+      userId: currentUser.id,
+    });
+    return { error: "경매 초기화에 실패했습니다." };
+  }
+
+  revalidatePath(`/auctions/${auctionCode}`);
+  revalidatePath(`/auctions/${auctionCode}/result`);
+  return { success: "경매가 시작 전 상태로 초기화되었습니다." };
+}
+
 export async function placeBid(
   _previousState: AuctionActionState,
   formData: FormData,
@@ -467,15 +627,56 @@ export async function placeBid(
       amount,
       auctionCode,
       bidAcceptWindowMs: BID_ACCEPT_WINDOW_MS,
+      currentNickname: currentUser?.nickname ?? null,
+      currentUserId: currentUser?.id ?? null,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       settleDelayMs: BID_SETTLE_DELAY_MS,
       submittedTargetParticipantId,
+      teamCaptainUserId: null,
+      teamId: null,
+      teamName: null,
       ...metadata,
     };
     throw new CaptainActionError(message);
   }
 
-  if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  if (!currentUser) {
+    console.warn("[auction-bid-denied]", {
+      auctionId,
+      currentNickname: null,
+      currentUserId: null,
+      reason: "LOGIN_REQUIRED",
+      team: {
+        captainUserId: null,
+        name: null,
+      },
+      teamCaptainUserId: null,
+      teamId: null,
+      teamName: null,
+    });
+    await logAppError({
+      auctionId,
+      level: "WARN",
+      message: "Bid denied",
+      metadata: {
+        amount,
+        auctionCode,
+        currentNickname: null,
+        currentUserId: null,
+        reason: "LOGIN_REQUIRED",
+        submittedTargetParticipantId,
+        team: {
+          captainUserId: null,
+          name: null,
+        },
+        teamCaptainUserId: null,
+        teamId: null,
+        teamName: null,
+      },
+      scope: "auction-bid-denied",
+    });
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -498,6 +699,8 @@ export async function placeBid(
       }
 
       const bidderTeam = auction.teams.find((team) => team.captainId === currentUser.id) ?? null;
+      const currentUserParticipant = auction.participants.find((participant) => participant.userId === currentUser.id) ?? null;
+      const debugTeam = bidderTeam ?? auction.teams.find((team) => team.id === currentUserParticipant?.teamId) ?? null;
       const currentBid = auction.currentBidId
         ? await tx.auctionBid.findUnique({ where: { id: auction.currentBidId } })
         : null;
@@ -505,9 +708,18 @@ export async function placeBid(
       const baseDeniedMetadata = {
         auctionStatus: auction.status,
         currentBidTeamId,
+        currentNickname: currentUser.nickname,
         currentTargetParticipantId: auction.currentTargetParticipantId,
+        currentUserId: currentUser.id,
         currentUserTeamId: bidderTeam?.id ?? null,
         remainingMs: auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - Date.now() : null,
+        team: {
+          captainUserId: debugTeam?.captainId ?? null,
+          name: debugTeam?.name ?? null,
+        },
+        teamCaptainUserId: debugTeam?.captainId ?? null,
+        teamId: debugTeam?.id ?? null,
+        teamName: debugTeam?.name ?? null,
       };
 
       if (auction.status === AuctionStatus.PAUSED) {
@@ -520,7 +732,7 @@ export async function placeBid(
       if (auction.status !== AuctionStatus.RUNNING) {
         denyBid("진행 중인 경매가 아닙니다.", {
           ...baseDeniedMetadata,
-          reason: "AUCTION_NOT_RUNNING",
+          reason: "AUCTION_NOT_ACTIVE",
         });
       }
       if (!auction.currentTargetParticipantId || !auction.currentRoundEndAt) {
@@ -566,7 +778,7 @@ export async function placeBid(
       if (!bidderTeam) {
         denyBid("팀장만 입찰할 수 있습니다.", {
           ...baseDeniedMetadata,
-          reason: "NOT_CAPTAIN",
+          reason: "NOT_TEAM_CAPTAIN",
         });
       }
       if (getTeamMemberCount(bidderTeam, auction.participants) >= auction.membersPerTeam) {
@@ -686,6 +898,21 @@ export async function placeBid(
     });
   } catch (error) {
     if (error instanceof CaptainActionError) {
+      console.warn("[auction-bid-denied]", {
+        auctionId,
+        currentNickname: currentUser.nickname,
+        currentUserId: currentUser.id,
+        ...(bidDeniedMetadata ?? {
+          reason: error.message,
+          team: {
+            captainUserId: null,
+            name: null,
+          },
+          teamCaptainUserId: null,
+          teamId: null,
+          teamName: null,
+        }),
+      });
       await logAppError({
         auctionId,
         level: "WARN",
@@ -2199,7 +2426,10 @@ async function getCurrentUser() {
 
   return prisma.user.findUnique({
     where: { authUserId: authUser.id },
-    select: { id: true },
+    select: {
+      id: true,
+      nickname: true,
+    },
   });
 }
 
