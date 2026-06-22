@@ -116,7 +116,8 @@ export async function analyzeInternalMatchScreenshot(formData: FormData): Promis
 
   const auction = await getAuctionForMatchDraft(auctionId);
   if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 등록할 수 있습니다." };
+  if (auction.deletedAt) return { error: "삭제된 경매방에는 결과를 등록할 수 없습니다." };
+  if (!canAccessAuction(auction, currentUser.id)) return { error: "경매 참가자만 내전 기록을 등록할 수 있습니다." };
 
   const extension = screenshot.name.split(".").pop()?.toLowerCase() ?? "png";
   const safeExtension = extension === "jpeg" ? "jpg" : extension;
@@ -170,7 +171,8 @@ export async function createManualInternalMatchDraft(formData: FormData): Promis
 
   const auction = await getAuctionForMatchDraft(auctionId);
   if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 등록할 수 있습니다." };
+  if (auction.deletedAt) return { error: "삭제된 경매방에는 결과를 등록할 수 없습니다." };
+  if (!canAccessAuction(auction, currentUser.id)) return { error: "경매 참가자만 내전 기록을 등록할 수 있습니다." };
 
   const draft = await buildInternalMatchDraft({
     analysis: {
@@ -212,7 +214,8 @@ export async function testRoboflowDetection(formData: FormData): Promise<TestRob
 
   const auction = await getAuctionForMatchDraft(auctionId);
   if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 Roboflow 분석 테스트를 실행할 수 있습니다." };
+  if (auction.deletedAt) return { error: "삭제된 경매방에는 결과 분석을 실행할 수 없습니다." };
+  if (!canAccessAuction(auction, currentUser.id)) return { error: "결과 분석은 경매 참가자만 사용할 수 있습니다." };
 
   try {
     const imageBuffer = Buffer.from(await screenshot.arrayBuffer());
@@ -255,7 +258,8 @@ export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promi
   });
 
   if (!auction || auction.code !== payload.auctionCode) return { error: "경매방을 찾을 수 없습니다." };
-  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 내전 기록을 저장할 수 있습니다." };
+  if (auction.deletedAt) return { error: "삭제된 경매방에는 결과를 저장할 수 없습니다." };
+  if (!canAccessAuction(auction, currentUser.id)) return { error: "경매 참가자만 내전 기록을 저장할 수 있습니다." };
   if (payload.winningSide !== "TEAM_1" && payload.winningSide !== "TEAM_2") {
     return { error: "승리 팀을 선택해주세요." };
   }
@@ -768,10 +772,6 @@ async function getCurrentUser(supabase: Awaited<ReturnType<typeof createClient>>
 
 function canAccessAuction(auction: { ownerId: string; participants: Array<{ userId: string }> }, userId: string) {
   return auction.ownerId === userId || auction.participants.some((participant) => participant.userId === userId);
-}
-
-function canManageMatchRecords(auction: { ownerId: string }, userId: string) {
-  return auction.ownerId === userId;
 }
 
 function formatAccount(account: { gameName: string; tagLine: string } | undefined) {
