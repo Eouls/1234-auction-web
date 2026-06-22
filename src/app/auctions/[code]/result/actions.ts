@@ -11,6 +11,11 @@ import {
 } from "@/lib/match-records/analyze-screenshot";
 import { prisma } from "@/lib/prisma";
 import { getChampionOptions, type ChampionOption } from "@/lib/riot/champions";
+import {
+  RoboflowConfigError,
+  runRoboflowDetection,
+  type RoboflowDetectionResult,
+} from "@/lib/roboflow";
 import { createClient } from "@/lib/supabase/server";
 
 export type InternalMatchUserOption = {
@@ -73,6 +78,12 @@ export type AnalyzeInternalMatchState = {
 
 export type SaveInternalMatchState = {
   error?: string;
+  success?: string;
+};
+
+export type TestRoboflowDetectionState = {
+  error?: string;
+  result?: RoboflowDetectionResult;
   success?: string;
 };
 
@@ -176,6 +187,58 @@ export async function createManualInternalMatchDraft(formData: FormData): Promis
   });
 
   return { draft, success: "수동 입력 초안을 만들었습니다." };
+}
+
+export async function testRoboflowDetection(formData: FormData): Promise<TestRoboflowDetectionState> {
+  const auctionId = stringValue(formData.get("auctionId"));
+  const auctionCode = stringValue(formData.get("auctionCode"));
+  const confidenceThreshold = confidenceThresholdValue(formData.get("confidenceThreshold"));
+  const screenshot = formData.get("screenshot");
+
+  if (!auctionId || !auctionCode) return { error: "경매 정보를 찾을 수 없습니다." };
+  if (!(screenshot instanceof File) || screenshot.size === 0) {
+    return { error: "Roboflow로 분석할 스크린샷을 업로드해주세요." };
+  }
+  if (!allowedScreenshotTypes.has(screenshot.type)) {
+    return { error: "jpg, jpeg, png, webp 이미지만 업로드할 수 있습니다." };
+  }
+  if (screenshot.size > maxScreenshotSize) {
+    return { error: "스크린샷은 최대 5MB까지 업로드할 수 있습니다." };
+  }
+
+  const supabase = await createClient();
+  const currentUser = await getCurrentUser(supabase);
+  if (!currentUser) return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+
+  const auction = await getAuctionForMatchDraft(auctionId);
+  if (!auction || auction.code !== auctionCode) return { error: "경매방을 찾을 수 없습니다." };
+  if (!canManageMatchRecords(auction, currentUser.id)) return { error: "방장만 Roboflow 분석 테스트를 실행할 수 있습니다." };
+
+  try {
+    const imageBuffer = Buffer.from(await screenshot.arrayBuffer());
+    const result = await runRoboflowDetection({
+      confidenceThreshold,
+      image: {
+        buffer: imageBuffer,
+      },
+    });
+
+    return {
+      result,
+      success: result.detections.length > 0 ? "Roboflow 감지 결과를 불러왔습니다." : "감지된 영역이 없습니다.",
+    };
+  } catch (error) {
+    if (error instanceof RoboflowConfigError) {
+      return { error: "Roboflow API 설정이 누락되었습니다." };
+    }
+
+    console.error("[roboflow] detection test failed", {
+      auctionId,
+      message: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+      name: error instanceof Error ? error.name : "UNKNOWN_ERROR",
+    });
+    return { error: "Roboflow 분석에 실패했습니다." };
+  }
 }
 
 export async function saveInternalMatchDraft(payload: InternalMatchDraft): Promise<SaveInternalMatchState> {
@@ -732,6 +795,13 @@ function positiveIntegerValue(value: FormDataEntryValue | null) {
   if (typeof value !== "string") return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function confidenceThresholdValue(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") return 0.5;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0.5;
+  return Math.min(0.95, Math.max(0.01, parsed));
 }
 
 function nullableString(value: string | null | undefined) {

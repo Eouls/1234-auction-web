@@ -15,8 +15,10 @@ import {
   analyzeInternalMatchScreenshot,
   createManualInternalMatchDraft,
   saveInternalMatchDraft,
+  testRoboflowDetection,
   type InternalMatchDraft,
   type InternalMatchPlayerDraft,
+  type TestRoboflowDetectionState,
 } from "@/app/auctions/[code]/result/actions";
 import { Button, Card, Input, SectionTitle } from "@/components/ui";
 
@@ -35,11 +37,16 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
   const [collectDatasetImage, setCollectDatasetImage] = useState(true);
   const [pasteMessage, setPasteMessage] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [roboflowError, setRoboflowError] = useState<string | null>(null);
+  const [roboflowResult, setRoboflowResult] = useState<TestRoboflowDetectionState["result"] | null>(null);
+  const [roboflowSuccess, setRoboflowSuccess] = useState<string | null>(null);
   const [selectedScreenshot, setSelectedScreenshot] = useState<File | null>(null);
   const [screenshotDimensions, setScreenshotDimensions] = useState<{ height: number; width: number } | null>(null);
+  const [roboflowConfidenceThreshold, setRoboflowConfidenceThreshold] = useState("0.5");
   const [success, setSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isAnalyzing, startAnalyzeTransition] = useTransition();
+  const [isDetecting, startRoboflowTransition] = useTransition();
   const [isSaving, startSaveTransition] = useTransition();
 
   const userOptionsById = useMemo(
@@ -60,12 +67,16 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
   function handleSelectedImage(file: File, source: "file" | "paste") {
     setError(null);
     setPasteMessage(null);
+    setRoboflowError(null);
+    setRoboflowResult(null);
+    setRoboflowSuccess(null);
     setSuccess(null);
 
     if (!allowedScreenshotTypes.has(file.type)) {
       setSelectedScreenshot(null);
       setScreenshotDimensions(null);
       setPreviewUrl(null);
+      setRoboflowResult(null);
       setError("jpg, jpeg, png, webp 이미지만 등록할 수 있습니다.");
       return;
     }
@@ -74,6 +85,7 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
       setSelectedScreenshot(null);
       setScreenshotDimensions(null);
       setPreviewUrl(null);
+      setRoboflowResult(null);
       setError("스크린샷은 최대 5MB까지 등록할 수 있습니다.");
       return;
     }
@@ -81,6 +93,7 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
     const nextPreviewUrl = URL.createObjectURL(file);
     setSelectedScreenshot(file);
     setDraft(null);
+    setRoboflowResult(null);
     setPreviewUrl((currentUrl) => {
       if (currentUrl) URL.revokeObjectURL(currentUrl);
       return nextPreviewUrl;
@@ -140,6 +153,36 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
         setDraft(result.draft);
         setSuccess(result.success ?? "분석 초안을 만들었습니다.");
       }
+    });
+  }
+
+  function handleRoboflowDetection() {
+    setError(null);
+    setPasteMessage(null);
+    setRoboflowError(null);
+    setRoboflowSuccess(null);
+    setSuccess(null);
+
+    if (!selectedScreenshot) {
+      setRoboflowError("Roboflow로 분석할 스크린샷을 업로드하거나 붙여넣어주세요.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("auctionId", auctionId);
+    formData.set("auctionCode", auctionCode);
+    formData.set("confidenceThreshold", roboflowConfidenceThreshold);
+    formData.set("screenshot", selectedScreenshot);
+
+    startRoboflowTransition(async () => {
+      const result = await testRoboflowDetection(formData);
+      if (result.error) {
+        setRoboflowResult(null);
+        setRoboflowError(result.error);
+        return;
+      }
+      setRoboflowResult(result.result ?? null);
+      setRoboflowSuccess(result.success ?? "Roboflow 감지 결과를 불러왔습니다.");
     });
   }
 
@@ -229,6 +272,9 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
       setDraft(null);
       setSelectedScreenshot(null);
       setScreenshotDimensions(null);
+      setRoboflowResult(null);
+      setRoboflowError(null);
+      setRoboflowSuccess(null);
       setPreviewUrl(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       router.refresh();
@@ -261,6 +307,28 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
           <Button disabled={isAnalyzing || !selectedScreenshot} type="submit" variant="secondary">
             {isAnalyzing ? "분석 중..." : "스크린샷 분석"}
           </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground-muted)]">
+              confidence
+              <select
+                className="h-9 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 text-xs text-[var(--foreground)] outline-none"
+                onChange={(event) => setRoboflowConfidenceThreshold(event.target.value)}
+                value={roboflowConfidenceThreshold}
+              >
+                <option value="0.3">0.3</option>
+                <option value="0.5">0.5</option>
+                <option value="0.7">0.7</option>
+              </select>
+            </label>
+            <Button
+              disabled={isAnalyzing || isDetecting || !selectedScreenshot}
+              onClick={handleRoboflowDetection}
+              type="button"
+              variant="secondary"
+            >
+              {isDetecting ? "Roboflow 분석 중..." : "Roboflow 분석 테스트"}
+            </Button>
+          </div>
           <Button disabled={isAnalyzing} onClick={handleManualDraft} type="button" variant="ghost">
             수동 입력
           </Button>
@@ -300,8 +368,12 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
         </div>
         {previewUrl && !draft ? (
           <div className="mt-4 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--card)]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="분석할 내전 결과 스크린샷 미리보기" className="max-h-72 w-full object-contain" src={previewUrl} />
+            <RoboflowPreview
+              alt="분석할 내전 결과 스크린샷 미리보기"
+              fallbackDimensions={screenshotDimensions}
+              result={roboflowResult}
+              src={previewUrl}
+            />
           </div>
         ) : null}
       </div>
@@ -321,14 +393,29 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
           {success}
         </p>
       ) : null}
+      {roboflowError ? (
+        <p className="mt-4 rounded-md border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900 dark:text-rose-100">
+          {roboflowError}
+        </p>
+      ) : null}
+      {roboflowSuccess ? (
+        <p className="mt-4 rounded-md border border-sky-300/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-100">
+          {roboflowSuccess}
+        </p>
+      ) : null}
+      {roboflowResult ? <RoboflowDetectionPanel result={roboflowResult} /> : null}
 
       {draft ? (
         <div className="mt-5 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-3">
             {previewUrl ? (
               <div className="overflow-hidden rounded-md border border-white/10 bg-slate-950/50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt="분석한 내전 결과 스크린샷" className="max-h-72 w-full object-contain" src={previewUrl} />
+                <RoboflowPreview
+                  alt="분석한 내전 결과 스크린샷"
+                  fallbackDimensions={screenshotDimensions}
+                  result={roboflowResult}
+                  src={previewUrl}
+                />
               </div>
             ) : null}
             <div className="rounded-md border border-white/10 bg-slate-950/50 p-3">
@@ -408,6 +495,122 @@ export function InternalMatchRecorder({ auctionCode, auctionId }: InternalMatchR
       ) : null}
     </Card>
   );
+}
+
+function RoboflowPreview({
+  alt,
+  fallbackDimensions,
+  result,
+  src,
+}: {
+  alt: string;
+  fallbackDimensions: { height: number; width: number } | null;
+  result: TestRoboflowDetectionState["result"] | null;
+  src: string;
+}) {
+  const imageWidth = result?.image.width ?? fallbackDimensions?.width ?? null;
+  const imageHeight = result?.image.height ?? fallbackDimensions?.height ?? null;
+  const canRenderBoxes = Boolean(imageWidth && imageHeight);
+
+  return (
+    <div className="relative mx-auto w-fit max-w-full">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img alt={alt} className="block max-h-72 max-w-full object-contain" src={src} />
+      {canRenderBoxes && result?.detections.length ? (
+        <div className="pointer-events-none absolute inset-0">
+          {result.detections.map((detection, index) => (
+            <div
+              className="absolute rounded-sm border-2 border-sky-400 bg-sky-400/10 shadow-[0_0_0_1px_rgba(2,6,23,0.45)]"
+              key={`${detection.className}-${detection.x}-${detection.y}-${index}`}
+              style={getDetectionBoxStyle(detection, imageWidth ?? 1, imageHeight ?? 1)}
+            >
+              <span className="absolute left-0 top-0 max-w-44 truncate rounded-br bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                {detection.className} {Math.round(detection.confidence * 100)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RoboflowDetectionPanel({ result }: { result: NonNullable<TestRoboflowDetectionState["result"]> }) {
+  return (
+    <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="text-sm font-black text-[var(--foreground)]">Roboflow 감지 결과</h3>
+          <p className="mt-1 text-xs text-[var(--foreground-muted)]">
+            workflow: {result.workflow.workspace}/{result.workflow.workflowId} · confidence {result.confidenceThreshold}
+          </p>
+        </div>
+        <span className="text-xs font-semibold text-[var(--foreground-muted)]">{result.detections.length}개 감지</span>
+      </div>
+
+      {result.detections.length ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-left text-xs">
+            <thead className="text-[var(--foreground-muted)]">
+              <tr className="border-b border-[var(--border)]">
+                <th className="py-2 pr-3 font-semibold">class</th>
+                <th className="py-2 pr-3 font-semibold">confidence</th>
+                <th className="py-2 pr-3 font-semibold">x</th>
+                <th className="py-2 pr-3 font-semibold">y</th>
+                <th className="py-2 pr-3 font-semibold">width</th>
+                <th className="py-2 pr-3 font-semibold">height</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.detections.map((detection, index) => (
+                <tr className="border-b border-[var(--border)] last:border-0" key={`${detection.className}-${index}`}>
+                  <td className="py-2 pr-3 font-semibold text-[var(--foreground)]">{detection.className}</td>
+                  <td className="py-2 pr-3 text-[var(--foreground-muted)]">{Math.round(detection.confidence * 100)}%</td>
+                  <td className="py-2 pr-3 text-[var(--foreground-muted)]">{Math.round(detection.x)}</td>
+                  <td className="py-2 pr-3 text-[var(--foreground-muted)]">{Math.round(detection.y)}</td>
+                  <td className="py-2 pr-3 text-[var(--foreground-muted)]">{Math.round(detection.width)}</td>
+                  <td className="py-2 pr-3 text-[var(--foreground-muted)]">{Math.round(detection.height)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm text-[var(--foreground-muted)]">
+          감지된 영역이 없습니다. confidence 값을 낮춰 다시 테스트해볼 수 있습니다.
+        </p>
+      )}
+
+      <details className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-[var(--foreground)]">원본 응답 JSON 보기</summary>
+        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-[var(--foreground-muted)]">
+          {JSON.stringify(result.raw, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
+function getDetectionBoxStyle(
+  detection: NonNullable<TestRoboflowDetectionState["result"]>["detections"][number],
+  imageWidth: number,
+  imageHeight: number,
+) {
+  const left = ((detection.x - detection.width / 2) / imageWidth) * 100;
+  const top = ((detection.y - detection.height / 2) / imageHeight) * 100;
+  const width = (detection.width / imageWidth) * 100;
+  const height = (detection.height / imageHeight) * 100;
+
+  return {
+    height: `${clampPercentage(height)}%`,
+    left: `${clampPercentage(left)}%`,
+    top: `${clampPercentage(top)}%`,
+    width: `${clampPercentage(width)}%`,
+  };
+}
+
+function clampPercentage(value: number) {
+  return Math.min(100, Math.max(0, value));
 }
 
 function PlayerDraftRow({
