@@ -333,20 +333,7 @@ export function AuctionRoomRealtime({
       </div>
     ) : null;
 
-  const shouldShowSyncNotice = isSyncing || isRealtimeUnstable;
-
-  if (!shouldShowSyncNotice) return debugPanel;
-
-  return (
-    <>
-      <div className="fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-md border border-amber-300/40 bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg">
-        {realtimeStatus === "SUBSCRIBED"
-          ? "경매 상태 동기화 중..."
-          : "실시간 연결이 불안정합니다. 상태를 다시 불러오는 중입니다."}
-      </div>
-      {debugPanel}
-    </>
-  );
+  return debugPanel;
 }
 
 type RealtimePayload = {
