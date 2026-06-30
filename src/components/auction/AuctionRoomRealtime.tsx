@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type AuctionRoomRealtimeProps = {
   auctionId: string;
   auctionStatus: string;
+  currentBidTeamId: string | null;
   currentRoundEndAt: string | null;
   currentTargetParticipantId: string | null;
+  currentUserTeamId: string | null;
+  isCaptain: boolean;
 };
 
 const REFRESH_DEBOUNCE_MS = 400;
@@ -21,19 +24,24 @@ type RealtimeStatus = "CHANNEL_ERROR" | "CLOSED" | "SUBSCRIBED" | "TIMED_OUT" | 
 export function AuctionRoomRealtime({
   auctionId,
   auctionStatus,
+  currentBidTeamId,
   currentRoundEndAt,
   currentTargetParticipantId,
+  currentUserTeamId,
+  isCaptain,
 }: AuctionRoomRealtimeProps) {
   const router = useRouter();
-  const channelInstanceId = useId();
   const refreshTimeoutRef = useRef<number | null>(null);
   const lastFocusRefreshAtRef = useRef(0);
   const lastRealtimeStatusRef = useRef<RealtimeStatus | null>(null);
   const resubscribeTimeoutRef = useRef<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastRealtimeAt, setLastRealtimeAt] = useState<string | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("CONNECTING");
   const [resubscribeKey, setResubscribeKey] = useState(0);
 
+  const channelName = `auction-room:${auctionId}`;
   const isAuctionLive = auctionStatus === "RUNNING" || auctionStatus === "PAUSED";
   const isRealtimeUnstable = realtimeStatus !== "SUBSCRIBED";
 
@@ -54,7 +62,9 @@ export function AuctionRoomRealtime({
 
       refreshTimeoutRef.current = window.setTimeout(() => {
         refreshTimeoutRef.current = null;
-        debugLog("[auction-realtime] router.refresh called", { auctionId, reason });
+        const refreshedAt = new Date().toISOString();
+        setLastRefreshAt(refreshedAt);
+        debugLog("[auction-realtime] router.refresh called", { auctionId, reason, refreshedAt });
         router.refresh();
         window.setTimeout(() => {
           if (isActive) setIsSyncing(false);
@@ -73,7 +83,7 @@ export function AuctionRoomRealtime({
       }, REALTIME_RESUBSCRIBE_DELAY_MS);
     }
 
-    const channel = supabase.channel(`auction-room:${auctionId}:${channelInstanceId}`);
+    const channel = supabase.channel(channelName);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isActive) return;
@@ -92,7 +102,7 @@ export function AuctionRoomRealtime({
         });
       }
 
-      debugLog("[auction-realtime] subscribe start", { auctionId });
+      debugLog("[auction-realtime] subscribe start", { auctionId, channelName });
 
       channel
         .on(
@@ -102,7 +112,10 @@ export function AuctionRoomRealtime({
             schema: "public",
             table: "Auction",
           },
-          (payload) => handleRealtimePayload(payload, auctionId, scheduleRefresh),
+          (payload) => {
+            setLastRealtimeAt(new Date().toISOString());
+            handleRealtimePayload(payload, auctionId, scheduleRefresh);
+          },
         )
         .on(
           "postgres_changes",
@@ -127,7 +140,8 @@ export function AuctionRoomRealtime({
               table: payload.table,
             });
 
-            scheduleRefresh("AuctionBid INSERT unfiltered debug");
+            setLastRealtimeAt(new Date().toISOString());
+            if (auctionIdMatches) scheduleRefresh("AuctionBid INSERT");
           },
         )
         .on(
@@ -137,7 +151,10 @@ export function AuctionRoomRealtime({
             schema: "public",
             table: "AuctionTeam",
           },
-          (payload) => handleRealtimePayload(payload, auctionId, scheduleRefresh),
+          (payload) => {
+            setLastRealtimeAt(new Date().toISOString());
+            handleRealtimePayload(payload, auctionId, scheduleRefresh);
+          },
         )
         .on(
           "postgres_changes",
@@ -146,7 +163,10 @@ export function AuctionRoomRealtime({
             schema: "public",
             table: "AuctionParticipant",
           },
-          (payload) => handleRealtimePayload(payload, auctionId, scheduleRefresh),
+          (payload) => {
+            setLastRealtimeAt(new Date().toISOString());
+            handleRealtimePayload(payload, auctionId, scheduleRefresh);
+          },
         )
         .on(
           "postgres_changes",
@@ -155,7 +175,10 @@ export function AuctionRoomRealtime({
             schema: "public",
             table: "ChatMessage",
           },
-          (payload) => handleRealtimePayload(payload, auctionId, scheduleRefresh),
+          (payload) => {
+            setLastRealtimeAt(new Date().toISOString());
+            handleRealtimePayload(payload, auctionId, scheduleRefresh);
+          },
         )
         .subscribe((status, error) => {
           const previousStatus = lastRealtimeStatusRef.current;
@@ -163,6 +186,7 @@ export function AuctionRoomRealtime({
           setRealtimeStatus(status);
           debugLog("[auction-sync] realtime status changed", {
             auctionId,
+            channelName,
             error: error
               ? {
                   message: error.message,
@@ -198,11 +222,11 @@ export function AuctionRoomRealtime({
         resubscribeTimeoutRef.current = null;
       }
 
-      debugLog("[auction-realtime] unsubscribed", { auctionId });
+      debugLog("[auction-realtime] unsubscribed", { auctionId, channelName });
 
       supabase.removeChannel(channel);
     };
-  }, [auctionId, channelInstanceId, resubscribeKey, router]);
+  }, [auctionId, channelName, resubscribeKey, router]);
 
   useEffect(() => {
     if (!isAuctionLive) return;
@@ -213,6 +237,7 @@ export function AuctionRoomRealtime({
         reason: "polling",
       });
       setIsSyncing(true);
+      setLastRefreshAt(new Date().toISOString());
       router.refresh();
       window.setTimeout(() => setIsSyncing(false), 1500);
     }, FALLBACK_REFRESH_INTERVAL_MS);
@@ -235,6 +260,7 @@ export function AuctionRoomRealtime({
         reason,
       });
       setIsSyncing(true);
+      setLastRefreshAt(new Date().toISOString());
       router.refresh();
       window.setTimeout(() => setIsSyncing(false), 1500);
     }
@@ -283,7 +309,7 @@ export function AuctionRoomRealtime({
       new CustomEvent("auction-sync-state", {
         detail: {
           auctionId,
-          isRealtimeUnstable,
+          isRealtimeUnstable: isRealtimeUnstable && isSyncing,
           isSyncing,
           realtimeStatus,
         },
@@ -291,16 +317,35 @@ export function AuctionRoomRealtime({
     );
   }, [auctionId, isRealtimeUnstable, isSyncing, realtimeStatus]);
 
+  const debugPanel =
+    process.env.NODE_ENV === "development" ? (
+      <div className="fixed bottom-16 right-4 z-50 max-w-[min(360px,calc(100vw-2rem))] rounded-md border border-[var(--border)] bg-[var(--card)] p-3 text-[11px] leading-5 text-[var(--foreground-muted)] shadow-lg">
+        <p className="font-bold text-[var(--foreground)]">auction sync debug</p>
+        <p>realtimeStatus: {realtimeStatus}</p>
+        <p>lastRealtimeAt: {lastRealtimeAt ?? "-"}</p>
+        <p>lastRefreshAt: {lastRefreshAt ?? "-"}</p>
+        <p>auctionStatus: {auctionStatus}</p>
+        <p>currentRoundEndAt: {currentRoundEndAt ?? "-"}</p>
+        <p>currentTargetParticipantId: {currentTargetParticipantId ?? "-"}</p>
+        <p>currentBidTeamId: {currentBidTeamId ?? "-"}</p>
+        <p>currentUserTeamId: {currentUserTeamId ?? "-"}</p>
+        <p>isCaptain: {String(isCaptain)}</p>
+      </div>
+    ) : null;
+
   const shouldShowSyncNotice = isSyncing || isRealtimeUnstable;
 
-  if (!shouldShowSyncNotice) return null;
+  if (!shouldShowSyncNotice) return debugPanel;
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-md border border-amber-300/40 bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg">
-      {realtimeStatus === "SUBSCRIBED"
-        ? "경매 상태 동기화 중..."
-        : "실시간 연결이 불안정합니다. 상태를 다시 불러오는 중입니다."}
-    </div>
+    <>
+      <div className="fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-md border border-amber-300/40 bg-[var(--card)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg">
+        {realtimeStatus === "SUBSCRIBED"
+          ? "경매 상태 동기화 중..."
+          : "실시간 연결이 불안정합니다. 상태를 다시 불러오는 중입니다."}
+      </div>
+      {debugPanel}
+    </>
   );
 }
 
@@ -351,7 +396,7 @@ function handleRealtimePayload(
       payloadOld: payload.old,
       table: payload.table,
     });
-    scheduleRefresh("Auction UPDATE fallback");
+    if (auctionIdMatches) scheduleRefresh("Auction UPDATE fallback");
     return;
   }
 

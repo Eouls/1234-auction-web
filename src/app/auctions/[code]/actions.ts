@@ -637,7 +637,7 @@ export async function placeBid(
       teamName: null,
       ...metadata,
     };
-    throw new CaptainActionError(message);
+    throw new CaptainActionError(message, typeof metadata.reason === "string" ? metadata.reason : undefined);
   }
 
   if (!currentUser) {
@@ -675,7 +675,7 @@ export async function placeBid(
       },
       scope: "auction-bid-denied",
     });
-    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요." };
+    return { error: "로그인 세션이 없습니다. 다시 로그인해주세요.", reason: "LOGIN_REQUIRED" };
   }
 
   try {
@@ -698,9 +698,14 @@ export async function placeBid(
         });
       }
 
-      const bidderTeam = auction.teams.find((team) => team.captainId === currentUser.id) ?? null;
       const currentUserParticipant = auction.participants.find((participant) => participant.userId === currentUser.id) ?? null;
+      const bidderTeam = currentUserParticipant
+        ? auction.teams.find((team) => team.captainId === currentUserParticipant.userId) ?? null
+        : null;
       const debugTeam = bidderTeam ?? auction.teams.find((team) => team.id === currentUserParticipant?.teamId) ?? null;
+      const captainParticipant = bidderTeam
+        ? auction.participants.find((participant) => participant.userId === bidderTeam.captainId) ?? null
+        : null;
       const currentBid = auction.currentBidId
         ? await tx.auctionBid.findUnique({ where: { id: auction.currentBidId } })
         : null;
@@ -711,6 +716,8 @@ export async function placeBid(
         currentNickname: currentUser.nickname,
         currentTargetParticipantId: auction.currentTargetParticipantId,
         currentUserId: currentUser.id,
+        participantId: currentUserParticipant?.id ?? null,
+        captainParticipantId: captainParticipant?.id ?? null,
         currentUserTeamId: bidderTeam?.id ?? null,
         remainingMs: auction.currentRoundEndAt ? auction.currentRoundEndAt.getTime() - Date.now() : null,
         team: {
@@ -772,6 +779,13 @@ export async function placeBid(
           finalizeDeadlineMs,
           reason: "BID_GRACE_PERIOD_EXPIRED",
           remainingMs,
+        });
+      }
+
+      if (!currentUserParticipant) {
+        denyBid("경매 참가자 정보를 찾을 수 없습니다.", {
+          ...baseDeniedMetadata,
+          reason: "PARTICIPANT_NOT_FOUND",
         });
       }
 
@@ -929,7 +943,7 @@ export async function placeBid(
         scope: "auction-bid-denied",
         userId: currentUser.id,
       });
-      return { error: error.message };
+      return { error: error.message, reason: error.reason };
     }
     console.error("[auction-bid] Failed", error);
     await logAppError({
@@ -2414,7 +2428,15 @@ export async function recordAuctionPresence(auctionId: string): Promise<AuctionA
   }
 }
 
-class CaptainActionError extends Error {}
+class CaptainActionError extends Error {
+  reason?: string;
+
+  constructor(message: string, reason?: string) {
+    super(message);
+    this.name = "CaptainActionError";
+    this.reason = reason;
+  }
+}
 
 async function getCurrentUser() {
   const supabase = await createClient();

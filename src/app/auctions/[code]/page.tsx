@@ -297,8 +297,11 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
       <AuctionRoomRealtime
         auctionId={auction.id}
         auctionStatus={auction.status}
+        currentBidTeamId={currentBid?.bidderTeamId ?? null}
         currentRoundEndAt={auction.currentRoundEndAt?.toISOString() ?? null}
         currentTargetParticipantId={auction.currentTargetParticipantId}
+        currentUserTeamId={currentUserCaptainTeam?.id ?? null}
+        isCaptain={Boolean(currentUserCaptainTeam)}
       />
       <AuctionStartAutoScroll isAuctionRunning={isRunning} targetId="auction-main-panel" />
       <PageHeader
@@ -523,6 +526,8 @@ export default async function AuctionRoomPage({ params }: AuctionRoomPageProps) 
             }
             currentTargetParticipantId={auction.currentTargetParticipantId}
             currentRoundEndAt={auction.currentRoundEndAt?.toISOString() ?? null}
+            currentUserId={currentUser.id}
+            currentUserParticipantId={currentParticipant?.id ?? null}
             currentUserTeamId={currentUserCaptainTeam?.id ?? null}
             currentUserTeamPointsLeft={currentUserCaptainTeam?.pointsLeft ?? null}
             hasTarget={Boolean(currentTargetParticipant)}

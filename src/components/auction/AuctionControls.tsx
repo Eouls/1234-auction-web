@@ -184,6 +184,8 @@ type BidControlProps = {
   currentTargetParticipantId: string | null;
   currentRoundEndAt: string | null;
   canBid: boolean;
+  currentUserId: string;
+  currentUserParticipantId: string | null;
   currentUserTeamId: string | null;
   currentUserTeamPointsLeft: number | null;
   isCurrentBidderTeam: boolean;
@@ -204,6 +206,8 @@ export function BidControls({
   currentTargetParticipantId,
   currentRoundEndAt,
   canBid,
+  currentUserId,
+  currentUserParticipantId,
   currentUserTeamId,
   currentUserTeamPointsLeft,
   isCurrentBidderTeam,
@@ -275,10 +279,9 @@ export function BidControls({
     remainingMs <= -BID_GRACE_PERIOD_MS &&
     remainingMs >= -BID_ACCEPT_WINDOW_MS;
   const baseBidDisabled =
-    !canBid ||
-    isCurrentBidderTeam ||
     !isRunning ||
     !hasTarget ||
+    !currentRoundEndAt ||
     isBidGraceExpired ||
     isClientSyncBlocked ||
     isBidding;
@@ -408,6 +411,8 @@ export function BidControls({
 
     const debugSignature = JSON.stringify({
       currentBidTeamId,
+      currentUserId,
+      currentUserParticipantId,
       currentUserTeamId,
       debugRemainingSeconds,
       disabledReasons,
@@ -423,6 +428,8 @@ export function BidControls({
     console.log("[auction-bid-disabled]", {
       auctionId,
       currentBidTeamId,
+      currentUserId,
+      participantId: currentUserParticipantId,
       disabledReasons,
       gracePeriodMs: BID_GRACE_PERIOD_MS,
       hasEnoughPoints: hasEnoughPointsForDirectBid,
@@ -439,6 +446,8 @@ export function BidControls({
   }, [
     auctionId,
     currentBidTeamId,
+    currentUserId,
+    currentUserParticipantId,
     currentUserTeamId,
     debugRemainingSeconds,
     disabledReasons,
@@ -717,10 +726,7 @@ export function BidControls({
             <input name="targetParticipantId" type="hidden" value={currentTargetParticipantId ?? ""} />
             <input name="bidAmount" type="hidden" value={amount} />
             <Button
-              disabled={
-                baseBidDisabled ||
-                (typeof currentUserTeamPointsLeft === "number" && amount > currentUserTeamPointsLeft)
-              }
+              disabled={baseBidDisabled}
               type="submit"
               variant="secondary"
             >
@@ -745,7 +751,7 @@ export function BidControls({
           />
           <Button
             className="min-w-14 whitespace-nowrap"
-            disabled={baseBidDisabled || !directBidAmount || !hasEnoughPointsForDirectBid}
+            disabled={baseBidDisabled || !directBidAmount}
             type="submit"
           >
             입찰
@@ -763,7 +769,7 @@ export function BidControls({
           </p>
         ) : null}
       </div>
-      {!canBid && !isTeamFull ? <p className="mt-3 text-xs text-slate-500">팀장만 입찰할 수 있습니다.</p> : null}
+      {!currentUserTeamId ? <p className="mt-3 text-xs text-slate-500">팀장만 입찰할 수 있습니다.</p> : null}
       {isCurrentBidderTeam ? (
         <p className="mt-3 text-xs text-amber-200">현재 최고 입찰 팀은 추가 입찰할 수 없습니다.</p>
       ) : null}
